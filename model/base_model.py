@@ -6,7 +6,7 @@ import torch
 class ModelDownloader:
     def __init__(self, model_id="Qwen/Qwen2.5-VL-3B-Instruct", local_dir="./weights/Qwen2.5-VL-3B-Instruct"):
         self.model_id = model_id
-        self.QuantizeConfiglocal_dir = local_dir
+        self.local_dir = local_dir
 
     def download(self):
         print(f"Bắt đầu tải: {self.model_id} -> {self.local_dir}")
