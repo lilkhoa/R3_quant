@@ -1,7 +1,7 @@
 import sys
 import os
 import torch
-from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration, GPTQConfig
+from transformers import AutoConfig, AutoProcessor, Qwen2_5_VLForConditionalGeneration, GPTQConfig
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from data.dataset_loader import ScienceQALocalLoader
 
