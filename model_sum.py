@@ -21,23 +21,32 @@ def print_model_info(model_path, name):
     
     # 2. Đếm số lượng tham số
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"🔢 Tổng số tham số   : {total_params / 1e9:.2f} Tỷ (Billion)")
+    print(f"🔢 Tổng số tham số   : {total_params / 1e9:.2f} Tỷ (Billion)\n")
     
-    # 3. Soi data type của một vài lớp Linear điển hình
-    print("\n🔬 CẤU TRÚC LỚP ẨN (Layer 0):")
+    # 3. Quét tự động để tìm cấu trúc lớp ẩn
+    print("🔬 CẤU TRÚC 3 LỚP TÍNH TOÁN ĐẦU TIÊN:")
     
-    # Trích xuất thử một layer transformer đầu tiên để xem nó bị biến đổi thế nào
-    layer_0 = model.model.layers[0]
-    
-    for name, module in layer_0.named_modules():
-        # Chỉ in các lớp tính toán chính (như Linear hoặc QuantLinear)
+    count = 0
+    # named_modules() sẽ duyệt qua tất cả các ngóc ngách của model
+    for module_name, module in model.named_modules():
+        # Bắt các class có chứa chữ "Linear" (Linear gốc hoặc QuantLinear)
         if "Linear" in str(type(module)):
-            print(f"  - Tên module: {name}")
+            print(f"  - Tên module: {module_name}")
             print(f"    Loại      : {type(module).__name__}")
-            # In ra thông tin các tensor bên trong module đó
+            
+            # In ra thông tin các tensor (trọng số) bên trong module đó
             for param_name, param in module.named_parameters():
                 print(f"    + {param_name}: shape={list(param.shape)}, dtype={param.dtype}")
             print("-" * 40)
+            
+            count += 1
+            if count >= 3: # Chỉ in 3 module để không bị trôi màn hình
+                break
+                
+    # Dọn dẹp RAM trước khi load model tiếp theo
+    del model
+    import gc
+    gc.collect()
 
 if __name__ == "__main__":
     BASE_MODEL = r"./weights/Qwen2.5-VL-3B-Instruct"
