@@ -13,10 +13,8 @@ def setup_environment():
 
 def download_data():
     print("\n--- 2. Đang tải Dataset ScienceQA từ Hugging Face ---")
-    # Tải dataset và lưu bản cache cục bộ dưới dạng parquet để đúng logic script cũ của bạn
     dataset = load_dataset("derek-thomas/ScienceQA", split="validation")
     
-    # Xuất ra file parquet vào đúng đường dẫn mà script quantizer.py đang đợi
     target_path = "./data/science_qa/validation-00000-of-00001-6c7328ff6c84284c.parquet"
     if not os.path.exists(target_path):
         dataset.to_parquet(target_path)
@@ -47,7 +45,6 @@ def run_quantizer():
     
     if os.path.exists(script_path):
         try:
-            # Chạy script bằng subprocess
             result = subprocess.run(["python", script_path], check=True)
             if result.returncode == 0:
                 print("\n[SUCCESS] Quá trình lượng tử hóa hoàn tất thành công!")

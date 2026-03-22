@@ -48,11 +48,9 @@ class VLMQEvaluator:
             ans_idx = int(row['answer'])
             target_letter = self.choices_map[ans_idx]
             
-            # Xử lý hình ảnh từ Parquet bytes
             image_bytes = row['image']['bytes']
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-            # Xây dựng Prompt ép mô hình suy luận (Zero-shot CoT)
             prompt_text = (
                 f"Question: {row['question']}\n"
                 f"Choices: {row['choices']}\n"
@@ -79,7 +77,6 @@ class VLMQEvaluator:
                 return_tensors="pt"
             ).to(self.model.device)
 
-            # Khởi chạy suy luận (Tắt gradient để tiết kiệm VRAM)
             with torch.no_grad():
                 generated_ids = self.model.generate(**inputs, max_new_tokens=128)
                 
@@ -88,11 +85,9 @@ class VLMQEvaluator:
             ]
             pred_text = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
 
-            # Chấm điểm bằng Robust Matcher của VLMQ
             score = self.robust_science_qa_matcher(pred_text, target_letter)
             correct_count += score
 
-            # In kết quả mẫu đầu tiên để kiểm tra định dạng
             if idx == df.index[0]:
                 print(f"\n[Ví dụ Output Thực Tế]")
                 print(f"Target: {target_letter}")
