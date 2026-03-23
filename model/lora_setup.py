@@ -41,5 +41,5 @@ def apply_lora_to_quantized_model(model_path):
     return peft_model
 
 if __name__ == "__main__":
-    QUANT_MODEL_DIR = r"./weights/Qwen2.5-VL-3B-Instruct"
+    QUANT_MODEL_DIR = r"./weights/Qwen2.5-VL-3B-Instruct-GPTQ-Int3"
     model_ready_for_rl = apply_lora_to_quantized_model(QUANT_MODEL_DIR)

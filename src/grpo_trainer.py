@@ -67,7 +67,7 @@ if __name__ == "__main__":
     print("⬇️ Đang tải dataset ScienceQA từ Hugging Face...")
     raw_scienceqa = load_dataset("derek-thomas/ScienceQA", split="train[:10]")
     
-    MODEL_DIR = r"./weights/Qwen2.5-VL-3B-Instruct" 
+    MODEL_DIR = r"./weights/Qwen2.5-VL-3B-Instruct-GPTQ-Int3" 
     OUTPUT_DIR = r"./r3_quant_checkpoints"
     
     train_r3_quant_grpo(MODEL_DIR, raw_scienceqa, OUTPUT_DIR)
