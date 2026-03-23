@@ -7,3 +7,4 @@ autoawq
 qwen-vl-utils
 optimum
 gptqmodel
+peft

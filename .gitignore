@@ -1,3 +1,4 @@
 data/science_qa
 weights
 venv
+.gitignore

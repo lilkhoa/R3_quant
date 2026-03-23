@@ -20,7 +20,6 @@ class ModelDownloader:
         print("Tải thành công!")
 
     def test_load_local(self):
-        print(f"Đang load từ: {self.local_dir}")
         processor = AutoProcessor.from_pretrained(self.local_dir)
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self.local_dir,

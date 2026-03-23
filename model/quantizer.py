@@ -13,7 +13,6 @@ class QwenGPTQQuantizer:
         self.data_path = data_path
 
     def get_calibration_data(self, test_size=8):
-        print(f"--- Đang tải dữ liệu calibration (Size: {test_size}) ---")
         loader = ScienceQALocalLoader(self.data_path, subset_size=test_size)
         df = loader.preprocess_for_r3_quant()
         return [f"Question: {row['question']}\nAnswer: {row['reasoning']}" for _, row in df.iterrows()]
@@ -33,7 +32,6 @@ class QwenGPTQQuantizer:
         config = AutoConfig.from_pretrained(self.base_model_path)
         config.use_cache = False
 
-        print(f"--- Đang tải model và bắt đầu lượng tử hóa ({bits}-bit)... ---")
         try:
             model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                 self.base_model_path,
@@ -44,17 +42,15 @@ class QwenGPTQQuantizer:
                 low_cpu_mem_usage=True
             )
 
-            print("--- Lượng tử hóa xong. Đang lưu model... ---")
             model.to("cpu")
             os.makedirs(self.save_path, exist_ok=True)
             model.save_pretrained(self.save_path)
             
             processor = AutoProcessor.from_pretrained(self.base_model_path)
             processor.save_pretrained(self.save_path)
-            print(f"--- Hoàn tất! Model đã lưu tại: {self.save_path} ---")
             
         except Exception as e:
-            print(f"--- Lỗi trong quá trình xử lý: {e} ---")
+            print(f"--- error: {e} ---")
             sys.exit(1) 
 
 if __name__ == "__main__":
