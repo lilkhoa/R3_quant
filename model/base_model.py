@@ -4,7 +4,7 @@ from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 import torch
 
 class ModelDownloader:
-    def __init__(self, model_id="Qwen/Qwen2.5-VL-3B-Instruct", local_dir="./weights/Qwen2.5-VL-3B-Instruct"):
+    def __init__(self, model_id="Qwen/Qwen2-VL-2B-Instruct", local_dir="./weights/Qwen2.5-VL-3B-Instruct"):
         self.model_id = model_id
         self.local_dir = local_dir
 

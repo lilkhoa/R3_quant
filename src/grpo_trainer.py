@@ -8,7 +8,12 @@ from datasets import load_dataset
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from model.lora_setup import apply_lora_to_quantized_model
-from src.rewards import format_reward_func, accuracy_reward_func
+from src.rewards import (
+    format_reward_func,
+    accuracy_reward_func,
+    brevity_penalty_func,
+    reasoning_length_reward_func
+)
 from src.utils import prepare_scienceqa_for_grpo 
 
 def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
@@ -28,7 +33,7 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         per_device_train_batch_size=1, 
         gradient_accumulation_steps=4,
         gradient_checkpointing=True, 
-        num_generations=4,         
+        num_generations=8,         
         max_prompt_length=512,
         max_completion_length=1024,  
         bf16=True,                   
@@ -38,7 +43,9 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
 
     reward_funcs = [
         format_reward_func,
-        accuracy_reward_func
+        accuracy_reward_func,
+        brevity_penalty_func,
+        reasoning_length_reward_func
     ]
 
     trainer = GRPOTrainer(
