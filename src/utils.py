@@ -41,22 +41,43 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
             
-            # Build prompt text (processor will apply chat template)
+            # Build prompt text
             text_prompt = build_scienceqa_prompt(item['question'], item['choices'])
+            
+            # Build conversational format for VLM training
+            # GRPOTrainer requires conversational prompts with message dictionaries
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": text_prompt}
+                    ]
+                }
+            ]
             
             correct_letter = self.labels[item['answer']]
             
             return {
-                "prompt": text_prompt,
+                "prompt": messages,  # Conversational format
                 "images": pil_image,
                 "ground_truth": correct_letter
             }
         except Exception as e:
             print(f"Error processing item {idx}: {e}")
             # Return valid dummy item instead of failing
+            dummy_image = Image.new('RGB', (224, 224), color='white')
             return {
-                "prompt": "Describe the image.",
-                "images": Image.new('RGB', (224, 224), color='white'),
+                "prompt": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image"},
+                            {"type": "text", "text": "Describe the image."}
+                        ]
+                    }
+                ],
+                "images": dummy_image,
                 "ground_truth": "A"
             }
 
