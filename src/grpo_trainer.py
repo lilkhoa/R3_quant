@@ -26,7 +26,7 @@ from src.rewards import (
     brevity_penalty_func,
     reasoning_length_reward_func
 )
-from src.utils import prepare_scienceqa_for_grpo, GRPODataCollator 
+from src.utils import prepare_scienceqa_for_grpo 
 
 def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
 
@@ -34,10 +34,7 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
 
     peft_model = apply_lora_to_quantized_model(model_dir)
     
-    grpo_dataset = prepare_scienceqa_for_grpo(train_data)
-    
-    # Create data collator for proper batch processing
-    data_collator = GRPODataCollator(processor)
+    grpo_dataset = prepare_scienceqa_for_grpo(train_data, processor)
 
     training_args = GRPOConfig(
         output_dir=output_dir,
@@ -49,13 +46,10 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         gradient_accumulation_steps=4,
         gradient_checkpointing=True, 
         num_generations=4,
-        max_completion_length=512,  # Limit generation length to prevent issues
+        max_completion_length=512,
         bf16=True,                   
         remove_unused_columns=False, 
         report_to="none",
-        dataloader_pin_memory=True,
-        dataloader_num_workers=0,  # Use main process for data loading
-        disable_tqdm=False,
     )
 
     reward_funcs = [
@@ -71,7 +65,6 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         reward_funcs=reward_funcs,
         args=training_args,
         train_dataset=grpo_dataset,
-        data_collator=data_collator,  # Add data collator for proper batch processing
     )
 
     trainer.train()
