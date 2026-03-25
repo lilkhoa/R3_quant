@@ -59,8 +59,8 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             correct_letter = self.labels[item['answer']]
             
             return {
-                "prompt": messages,  # Conversational format
-                "images": pil_image,
+                "prompt": messages,      # Conversational format
+                "images": [pil_image],   # Must be a list, even for single image
                 "ground_truth": correct_letter
             }
         except Exception as e:
@@ -77,7 +77,7 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
                         ]
                     }
                 ],
-                "images": dummy_image,
+                "images": [dummy_image],  # Must be a list
                 "ground_truth": "A"
             }
 
