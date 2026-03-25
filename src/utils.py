@@ -1,4 +1,6 @@
 import torch
+import io
+from PIL import Image
 from datasets import Dataset
 
 def build_scienceqa_prompt(question: str, choices: list) -> str:
@@ -29,6 +31,19 @@ def build_scienceqa_prompt(question: str, choices: list) -> str:
     )
     return prompt
 
+def _convert_image_to_pil(image_data):
+    """Convert image data from HuggingFace format to PIL Image."""
+    if isinstance(image_data, Image.Image):
+        return image_data
+    elif isinstance(image_data, dict):
+        if 'bytes' in image_data:
+            return Image.open(io.BytesIO(image_data['bytes'])).convert('RGB')
+        elif 'path' in image_data:
+            return Image.open(image_data['path']).convert('RGB')
+    elif isinstance(image_data, str):
+        return Image.open(image_data).convert('RGB')
+    return image_data
+
 def prepare_scienceqa_for_grpo(raw_dataset, max_samples=None):
     formatted_data = {
         "prompt": [],    
@@ -44,6 +59,9 @@ def prepare_scienceqa_for_grpo(raw_dataset, max_samples=None):
             
         if item["image"] is None:
             continue
+        
+        # Convert image to PIL Image format
+        pil_image = _convert_image_to_pil(item["image"])
             
         text_prompt = build_scienceqa_prompt(item["question"], item["choices"])
         
@@ -51,7 +69,7 @@ def prepare_scienceqa_for_grpo(raw_dataset, max_samples=None):
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": item["image"]}, 
+                    {"type": "image", "image": pil_image}, 
                     {"type": "text", "text": text_prompt}
                 ]
             }
@@ -114,8 +132,9 @@ def prepare_scienceqa_for_sft(raw_dataset, max_samples=None):
         
         # 4. Gom dữ liệu vào 2 cột riêng biệt
         formatted_data["messages"].append([user_message, assistant_message])
-        # QUAN TRỌNG: Cột images phải là một mảng (list) chứa các ảnh của hội thoại đó
-        formatted_data["images"].append([item["image"]]) 
+        # Convert image to PIL format and store as list
+        pil_image = _convert_image_to_pil(item["image"])
+        formatted_data["images"].append([pil_image]) 
         count += 1 
         
     return Dataset.from_dict(formatted_data)
