@@ -1,6 +1,10 @@
-import torch
-import sys
 import os
+import sys
+
+# Disable wandb to avoid protobuf compatibility issues on Kaggle
+os.environ["WANDB_DISABLED"] = "true"
+
+import torch
 from trl import GRPOConfig, GRPOTrainer
 from transformers import AutoProcessor
 from datasets import load_dataset
