@@ -10,6 +10,17 @@ def apply_lora_to_quantized_model(model_path):
         torch_dtype=torch.bfloat16,
     )
 
+    # Configure generation settings to avoid conflicts
+    model.generation_config.max_new_tokens = 512
+    model.generation_config.do_sample = True
+    model.generation_config.top_k = 50
+    model.generation_config.top_p = 0.9
+    model.generation_config.temperature = 0.7
+    
+    # Disable compile mode for compatibility with quantized layers
+    if hasattr(model.generation_config, 'disable_compile'):
+        model.generation_config.disable_compile = True
+
     model = prepare_model_for_kbit_training(model)
 
     target_modules = [

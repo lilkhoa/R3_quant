@@ -1,5 +1,6 @@
 import os
 import sys
+import warnings
 
 # Disable wandb to avoid protobuf compatibility issues on Kaggle
 os.environ["WANDB_DISABLED"] = "true"
@@ -13,6 +14,9 @@ from trl import GRPOConfig, GRPOTrainer
 from transformers import AutoProcessor
 from datasets import load_dataset
 
+# Suppress specific deprecation warnings that don't affect functionality
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch.jit")
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from model.lora_setup import apply_lora_to_quantized_model
@@ -22,7 +26,7 @@ from src.rewards import (
     brevity_penalty_func,
     reasoning_length_reward_func
 )
-from src.utils import prepare_scienceqa_for_grpo 
+from src.utils import prepare_scienceqa_for_grpo, GRPODataCollator 
 
 def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
 
@@ -31,6 +35,9 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
     peft_model = apply_lora_to_quantized_model(model_dir)
     
     grpo_dataset = prepare_scienceqa_for_grpo(train_data)
+    
+    # Create data collator for proper batch processing
+    data_collator = GRPODataCollator(processor)
 
     training_args = GRPOConfig(
         output_dir=output_dir,
@@ -41,10 +48,14 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         per_device_train_batch_size=1, 
         gradient_accumulation_steps=4,
         gradient_checkpointing=True, 
-        num_generations=4,         
+        num_generations=4,
+        max_completion_length=512,  # Limit generation length to prevent issues
         bf16=True,                   
         remove_unused_columns=False, 
-        report_to="none"             
+        report_to="none",
+        dataloader_pin_memory=True,
+        dataloader_num_workers=0,  # Use main process for data loading
+        disable_tqdm=False,
     )
 
     reward_funcs = [
@@ -60,6 +71,7 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         reward_funcs=reward_funcs,
         args=training_args,
         train_dataset=grpo_dataset,
+        data_collator=data_collator,  # Add data collator for proper batch processing
     )
 
     trainer.train()
