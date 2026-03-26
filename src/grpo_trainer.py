@@ -41,7 +41,7 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         learning_rate=1e-6,
         lr_scheduler_type="cosine",
         logging_steps=1,           
-        max_steps=100,
+        max_steps=500,
         per_device_train_batch_size=1, 
         gradient_accumulation_steps=4,
         gradient_checkpointing=True, 
