@@ -187,7 +187,7 @@ if __name__ == "__main__":
     NUM_SAMPLES = 500
 
     print("Loading dataset from Hugging Face...")
-    df = load_dataset("derek-thomas/ScienceQA", "test").select(range(NUM_SAMPLES))
+    df = load_dataset("derek-thomas/ScienceQA", split="test").select(range(NUM_SAMPLES))
     
     print(f"Dataset loaded: {len(df)} samples\n")
 
