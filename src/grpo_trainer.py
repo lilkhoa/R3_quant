@@ -20,11 +20,11 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch.jit
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from model.lora_setup import apply_lora_to_quantized_model
-from src.rewards import (
+from src.reward.v1_deep_reasoning import (
     format_reward_func,
     accuracy_reward_func,
-    brevity_penalty_func,
-    reasoning_length_reward_func
+    reasoning_length_reward_func,
+    logic_structure_reward_func
 )
 from src.utils import prepare_scienceqa_for_grpo 
 
@@ -55,8 +55,8 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
     reward_funcs = [
         format_reward_func,
         accuracy_reward_func,
-        brevity_penalty_func,
-        reasoning_length_reward_func
+        reasoning_length_reward_func,
+        logic_structure_reward_func
     ]
 
     trainer = GRPOTrainer(

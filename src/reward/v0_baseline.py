@@ -90,16 +90,13 @@ def _extract_answer_letter(text: str) -> str:
 def accuracy_reward_func(completions, ground_truth, **kwargs) -> list[float]:
     """
     Extract answer letter from <answer> tag using regex and compare with ground truth.
-    Implements soft accuracy with partial credit for reasoning.
-    - Exact match: +1.0
-    - Incorrect but correct answer appears in reasoning: +0.3 to +0.4 (consolation bonus)
-    - Otherwise: 0.0
+    Handles multiple-choice contexts: (A), "Option A", "The answer is A.", etc.
+    Assigns 1.0 for exact letter match, 0.0 otherwise.
     """
     rewards = []
     for comp, truth in zip(completions, ground_truth):
         content = comp[0]["content"] if isinstance(comp, list) else comp
         answer_text = extract_xml_answer(content)
-        think_text = extract_think_content(content)
         
         # Extract answer letter using regex
         pred_letter = _extract_answer_letter(answer_text)
@@ -109,53 +106,44 @@ def accuracy_reward_func(completions, ground_truth, **kwargs) -> list[float]:
         if not truth_letter:
             truth_letter = truth.upper().strip()
         
-        # Primary score: exact match
         if pred_letter == truth_letter:
             rewards.append(1.0)
         else:
-            # Soft accuracy: check if correct answer appears in reasoning with conclusive language
-            # Look for patterns like "therefore A", "answer A", "conclusion A", etc.
-            consolation_score = 0.0
-            truth_lower = truth_letter.lower()
-            truth_upper = truth_letter.upper()
-            
-            # Count occurrences of truth letter in think content
-            truth_count = think_text.count(truth_letter)
-            
-            # Look for conclusion-style patterns
-            conclusion_patterns = [
-                rf'therefore\s+{truth_upper}\s',
-                rf'therefore\s+{truth_lower}\s',
-                rf'answer\s+{truth_upper}\s',
-                rf'answer\s+{truth_lower}\s',
-                rf'conclusion\s+{truth_upper}\s',
-                rf'conclusion\s+{truth_lower}\s',
-                rf'correct.*?{truth_upper}\s',
-                rf'correct.*?{truth_lower}\s',
-            ]
-            
-            has_conclusion = any(re.search(pattern, think_text, re.IGNORECASE) for pattern in conclusion_patterns)
-            
-            # Award partial credit if correct answer appears multiple times OR in conclusion
-            if truth_count >= 2 or has_conclusion:
-                consolation_score = 0.3
-                if truth_count >= 3:  # Extra bonus for very strong signal
-                    consolation_score = 0.4
-            
-            rewards.append(consolation_score)
+            rewards.append(0.0)
+    
+    return rewards
+
+def brevity_penalty_func(completions, **kwargs) -> list[float]:
+    """
+    Apply small negative penalty proportional to response length.
+    Discourages hallucination and repetitive reasoning that wastes tokens/VRAM.
+    Penalty: -0.01 per 100 characters.
+    """
+    rewards = []
+    for comp in completions:
+        content = comp[0]["content"] if isinstance(comp, list) else comp
+        
+        # Calculate penalty based on character count
+        char_count = len(content)
+        penalty = -(char_count / 100) * 0.01
+        
+        # Cap penalty to prevent extreme negative values
+        penalty = max(penalty, -0.5)
+        
+        rewards.append(penalty)
     
     return rewards
 
 def reasoning_length_reward_func(completions, **kwargs) -> list[float]:
     """
-    Enforce meaningful chain-of-thought reasoning.
-    Increased minimum from 15 to 100 characters to force deep reasoning.
+    Anti-cheating reward: penalize responses with empty or too-short reasoning.
+    Ensures model actually reasons instead of shortcutting with <think></think><answer>A</answer>.
     
-    - Under 100 non-whitespace characters: -1.0 (penalize shallow reasoning)
-    - Over 100 characters: +0.2 (bonus for substantial reasoning)
+    Minimum reasoning length: 15 characters (enforced after brevity penalty introduced).
+    Penalty for violating: -1.0 (strong negative to force meaningful reasoning).
     """
     rewards = []
-    MIN_REASONING_LENGTH = 100  # Increased from 15
+    MIN_REASONING_LENGTH = 15
     
     for comp in completions:
         content = comp[0]["content"] if isinstance(comp, list) else comp
@@ -166,55 +154,16 @@ def reasoning_length_reward_func(completions, **kwargs) -> list[float]:
         reasoning_length = len(think_content.replace(" ", "").replace("\n", "").replace("\t", ""))
         
         if reasoning_length < MIN_REASONING_LENGTH:
-            rewards.append(-1.0)  # Strong penalty for too-short reasoning
+            rewards.append(-1.0)
         else:
-            rewards.append(0.2)  # Bonus for substantial reasoning
+            rewards.append(0.0)  # No bonus, just no penalty
     
     return rewards
 
-def logic_structure_reward_func(completions, **kwargs) -> list[float]:
+def visual_faithfulness_reward_func(completions, **kwargs) -> list[float]:
     """
-    Check whether model is reasoning logically or generating filler text.
-    Scans for logical transition keywords that indicate actual reasoning vs. rambling.
-    
-    - 2-3+ keywords found: +0.3 (structured reasoning)
-    - No keywords found: -0.3 (likely meaningless text to reach length target)
+    Placeholder for visual faithfulness checks.
+    Can implement logic to penalize hallucinations not present in images.
+    Currently returns neutral reward (0.0 for all completions).
     """
-    # Logical transition keywords that indicate structured reasoning
-    logical_keywords = [
-        r'\bbecause\b',
-        r'\btherefore\b',
-        r'\bobserving\s+the\s+image',
-        r'\bstep\b',
-        r'\bhowever\b',
-        r'\bconclusion\b',
-        r'\bthus\b',
-        r'\bsince\b',
-        r'\bnotice\b',
-        r'\bidentify',
-    ]
-    
-    rewards = []
-    
-    for comp in completions:
-        content = comp[0]["content"] if isinstance(comp, list) else comp
-        think_content = extract_think_content(content)
-        
-        if not think_content:
-            # Empty reasoning = no logic structure
-            rewards.append(-0.3)
-            continue
-        
-        # Count keyword matches (case-insensitive)
-        keyword_count = 0
-        for keyword_pattern in logical_keywords:
-            matches = re.findall(keyword_pattern, think_content, re.IGNORECASE)
-            keyword_count += len(matches)
-        
-        # Award or penalize based on keyword density
-        if keyword_count >= 2:
-            rewards.append(0.3)  # Structured reasoning detected
-        else:
-            rewards.append(-0.3)  # Likely filler text
-    
-    return rewards
+    return [0.0] * len(completions)
