@@ -41,16 +41,23 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         output_dir=output_dir,
         learning_rate=5e-5,
         lr_scheduler_type="cosine",
-        logging_steps=1,           
+        logging_steps=1,
         max_steps=500,
-        per_device_train_batch_size=1, 
+        per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
-        gradient_checkpointing=True, 
+        gradient_checkpointing=True,
         num_generations=4,
-        max_completion_length=4096,
-        bf16=True,                   
-        remove_unused_columns=False, 
+        # FIX Bug #3: 4096 → 512. With 4 generations on a T4 (16GB), generating
+        # 4×4096 tokens per step causes VRAM exhaustion, forcing the model to EOS
+        # immediately (observed: mean_length=4.25, max_length=10).
+        max_completion_length=512,
+        # FIX Bug #6: T4 GPUs (Turing, Kaggle) do NOT natively support bfloat16.
+        # bf16=True on a T4 silently falls back to fp32, wasting VRAM. Use fp16.
+        fp16=True,
+        remove_unused_columns=False,
         report_to="none",
+        # Temperature for generation diversity (so completions differ → reward_std > 0)
+        temperature=0.9,
     )
 
     reward_funcs = [

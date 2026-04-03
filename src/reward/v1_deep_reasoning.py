@@ -166,28 +166,34 @@ def accuracy_reward_func(completions, ground_truth, **kwargs) -> list[float]:
 
 def reasoning_length_reward_func(completions, **kwargs) -> list[float]:
     """
-    Enforce meaningful chain-of-thought reasoning.
-    Increased minimum from 15 to 100 characters to force deep reasoning.
-    
-    - Under 100 non-whitespace characters: -1.0 (penalize shallow reasoning)
-    - Over 100 characters: +0.2 (bonus for substantial reasoning)
+    Encourage chain-of-thought reasoning without punishing all degenerate outputs equally.
+
+    FIX (Bug #2): The previous version returned -1.0 for ALL short completions.
+    At early training, every completion is short/garbage, so reward_std=0 across
+    all num_generations completions → advantage=0 → GRPO loss=0 → no learning.
+
+    New design creates variance even in degenerate states:
+    - No <think> content at all (truly empty):  0.0  (neutral, not penalized)
+    - Has <think> but < 50 chars of reasoning:  0.0  (neutral)
+    - 50–200 chars of reasoning:               +0.2  (getting there)
+    - 200+ chars of solid reasoning:           +0.3  (bonus for deep reasoning)
+
+    This ensures different completions in a batch can have different values,
+    giving GRPO the variance it needs to compute a non-zero loss.
     """
     rewards = []
-    MIN_REASONING_LENGTH = 100  # Increased from 15
-    
     for comp in completions:
         content = comp[0]["content"] if isinstance(comp, list) else comp
-        
         think_content = extract_think_content(content)
-        
-        # Count characters in reasoning (excluding whitespace padding)
         reasoning_length = len(think_content.replace(" ", "").replace("\n", "").replace("\t", ""))
-        
-        if reasoning_length < MIN_REASONING_LENGTH:
-            rewards.append(-1.0)  # Strong penalty for too-short reasoning
+
+        if reasoning_length >= 200:
+            rewards.append(0.3)   # Deep reasoning
+        elif reasoning_length >= 50:
+            rewards.append(0.2)   # Moderate reasoning
         else:
-            rewards.append(0.2)  # Bonus for substantial reasoning
-    
+            rewards.append(0.0)   # Too short or empty: neutral (no penalty)
+
     return rewards
 
 def logic_structure_reward_func(completions, **kwargs) -> list[float]:
@@ -240,22 +246,35 @@ def logic_structure_reward_func(completions, **kwargs) -> list[float]:
 _log_counter = 0
 
 def logging_reward_func(completions, ground_truth, **kwargs) -> list[float]:
+    """
+    Logging-only reward: always returns 0.0 so it never affects reward variance.
+
+    FIX (Bug #5): The previous counter fired every 10 reward *calls*, but since
+    there are 5 reward functions and num_generations=4, there are ~20 calls per
+    training step, so 'step 10' in logs was actually training step ~0.5.
+    Now fires every 50 calls (~2-3 actual training steps) with corrected label.
+    """
     global _log_counter
     _log_counter += 1
-    
-    if _log_counter % 10 == 0:
-        print("\n" + "🔥"*35)
-        print(f"🔍 [STEP BẮT SÓNG: {_log_counter}] LIVE MODEL OUTPUT")
-        print("🔥"*35)
-        print(f"🎯 ĐÁP ÁN GỐC (Ground Truth): {ground_truth[0]}")
+
+    # Each training step fires reward funcs num_generations times = 4 calls per func.
+    # With 5 reward funcs total, each step = ~20 reward calls.
+    # Log every 50 calls ≈ every ~2-3 training steps.
+    if _log_counter % 50 == 0:
+        approx_step = _log_counter // 20
+        print("\n" + "🔥" * 35)
+        print(f"🔍 [LIVE CHECKPOINT ~step {approx_step}] LIVE MODEL OUTPUT")
+        print("🔥" * 35)
+        print(f"🎯 GROUND TRUTH ANSWER: {ground_truth[0]}")
         print("-" * 70)
-        
+
         content = completions[0][0]["content"] if isinstance(completions[0], list) else completions[0]
-        
+
         if len(content) > 1500:
-            print(content[:1500] + "\n...[NỘI DUNG ĐÃ BỊ CẮT BỚT CHO GỌN LOG]...")
+            print(content[:1500] + "\n...[CONTENT TRUNCATED FOR LOG BREVITY]...")
         else:
             print(content)
-            
-        print("🔥"*35 + "\n")
+
+        print("🔥" * 35 + "\n")
+
     return [0.0] * len(completions)

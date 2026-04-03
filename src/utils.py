@@ -44,12 +44,22 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             # Build prompt text
             text_prompt = build_scienceqa_prompt(item['question'], item['choices'])
             
-            # Build conversational format for VLM training
-            # GRPOTrainer requires conversational prompts with message dictionaries
+            # Build conversational format for VLM training.
+            # FIX Bug #4: Add system message matching eval_grpo.py's format.
+            # Without this, the 3-bit model has no instruction to produce
+            # <think>/<answer> tags, so format_reward_func gets 0.0 constantly.
+            SYSTEM_MESSAGE = (
+                "You are a logical reasoning AI. "
+                "You MUST think step-by-step and enclose your entire reasoning "
+                "within <think> and </think> tags. "
+                "After thinking, output your final answer (one letter only) "
+                "enclosed within <answer> and </answer> tags."
+            )
+
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a logical reasoning AI. You MUST think step-by-step and strictly enclose your entire reasoning process within <think> and </think> tags. After thinking, you MUST output your final answer enclosed within <answer> and </answer> tags."
+                    "content": SYSTEM_MESSAGE
                 },
                 {
                     "role": "user",
@@ -59,9 +69,9 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
                     ]
                 }
             ]
-            
+
             correct_letter = self.labels[item['answer']]
-            
+
             return {
                 "prompt": messages,      # Conversational format
                 "images": [pil_image],   # Must be a list, even for single image
@@ -90,33 +100,32 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             }
 
 def build_scienceqa_prompt(question: str, choices: list) -> str:
-    """Build a formatted prompt for ScienceQA questions."""
-    prompt = f"{question}\n\nChoices:\n"
-    labels = ["A", "B", "C", "D", "E"]
-    
-    if not choices:
-        prompt += (
-            "\nThink step by step and reason based on the image. "
-            "Enclose your reasoning process within <think> </think> tags "
-            "and provide your FINAL ANSWER within <answer> </answer> tags."
-        )
-        return prompt
-
-    for i, choice in enumerate(choices):
-        prompt += f"{labels[i]}. {choice}\n"
-        
-    valid_labels = labels[:len(choices)]
-    if len(valid_labels) > 1:
-        label_str = ", ".join(valid_labels[:-1]) + f" or {valid_labels[-1]}"
-    else:
-        label_str = valid_labels[0]
-        
-    prompt += (
-        "\nThink step by step and reason based on the image. "
-        "Enclose your reasoning process within <think> </think> tags "
-        f"and provide your FINAL ANSWER (strictly write 1 letter: {label_str}) within <answer> </answer> tags."
-        "\n\nBegin your response exactly with:\n<think>"
+    prompt = (
+        "You are a logical reasoning AI. You MUST follow the exact format below.\n\n"
+        "--- EXAMPLE ---\n"
+        "Question: Which number is larger, 3 or 5?\n"
+        "Choices:\n"
+        "A. 3\n"
+        "B. 5\n"
+        "Response:\n"
+        "<think>\n"
+        "The question asks to compare the numbers 3 and 5. Since 5 is greater than 3, the correct choice is B.\n"
+        "</think>\n"
+        "<answer>B</answer>\n"
+        "--- END EXAMPLE ---\n\n"
+        "Now, solve the following real question in the exact same format.\n\n"
     )
+    
+    prompt += f"Question: {question}\n"
+    
+    labels = ["A", "B", "C", "D", "E"]
+    if choices:
+        prompt += "Choices:\n"
+        for i, choice in enumerate(choices):
+            prompt += f"{labels[i]}. {choice}\n"
+    
+    prompt += "\nResponse:\n"
+    
     return prompt
 
 def _convert_image_to_pil(image_data):
