@@ -115,6 +115,7 @@ def build_scienceqa_prompt(question: str, choices: list) -> str:
         "\nThink step by step and reason based on the image. "
         "Enclose your reasoning process within <think> </think> tags "
         f"and provide your FINAL ANSWER (strictly write 1 letter: {label_str}) within <answer> </answer> tags."
+        "\n\nBegin your response exactly with:\n<think>"
     )
     return prompt
 

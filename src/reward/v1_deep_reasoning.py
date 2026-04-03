@@ -236,3 +236,26 @@ def logic_structure_reward_func(completions, **kwargs) -> list[float]:
             rewards.append(-0.3)  # Likely filler text
     
     return rewards
+
+_log_counter = 0
+
+def logging_reward_func(completions, ground_truth, **kwargs) -> list[float]:
+    global _log_counter
+    _log_counter += 1
+    
+    if _log_counter % 10 == 0:
+        print("\n" + "🔥"*35)
+        print(f"🔍 [STEP BẮT SÓNG: {_log_counter}] LIVE MODEL OUTPUT")
+        print("🔥"*35)
+        print(f"🎯 ĐÁP ÁN GỐC (Ground Truth): {ground_truth[0]}")
+        print("-" * 70)
+        
+        content = completions[0][0]["content"] if isinstance(completions[0], list) else completions[0]
+        
+        if len(content) > 1500:
+            print(content[:1500] + "\n...[NỘI DUNG ĐÃ BỊ CẮT BỚT CHO GỌN LOG]...")
+        else:
+            print(content)
+            
+        print("🔥"*35 + "\n")
+    return [0.0] * len(completions)

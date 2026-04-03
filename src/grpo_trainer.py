@@ -24,7 +24,8 @@ from src.reward.v1_deep_reasoning import (
     format_reward_func,
     accuracy_reward_func,
     reasoning_length_reward_func,
-    logic_structure_reward_func
+    logic_structure_reward_func,
+    logging_reward_func
 )
 from src.utils import prepare_scienceqa_for_grpo 
 
@@ -46,7 +47,7 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         gradient_accumulation_steps=4,
         gradient_checkpointing=True, 
         num_generations=4,
-        max_completion_length=1024,
+        max_completion_length=4096,
         bf16=True,                   
         remove_unused_columns=False, 
         report_to="none",
@@ -56,7 +57,8 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         format_reward_func,
         accuracy_reward_func,
         reasoning_length_reward_func,
-        logic_structure_reward_func
+        logic_structure_reward_func,
+        logging_reward_func
     ]
 
     trainer = GRPOTrainer(
