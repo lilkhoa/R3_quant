@@ -59,7 +59,7 @@ def extract_answer(text: str) -> str:
         return match.group(1).upper()
     
     # Fallback 2: Look for standalone letters surrounded by whitespace or punctuation
-    match = re.search(r'(?:^|\s|:|,|\.|\?|!|。|、|；)([A-Ea-e])(?:\s|:|,|\.|\?|!|。|、|；|$)', text)
+    match = re.search(r'(?:^|\s|:|,|\.|\?|!|。|、|;)([A-Ea-e])(?:\s|:|,|\.|\?|!|。|、|;|$)', text)
     if match:
         return match.group(1).upper()
     
@@ -70,6 +70,11 @@ def extract_thinking(text: str) -> str:
     match = re.search(r'<think>(.*?)</think>', text, re.IGNORECASE | re.DOTALL)
     if match:
         return match.group(1).strip()
+    
+    match_incomplete = re.search(r'<think>(.*)', text, re.IGNORECASE | re.DOTALL)
+    if match_incomplete:
+        return match_incomplete.group(1).strip() + " ...[BỊ CẮT CỤT]"
+        
     return ""
 
 def evaluate_model(model_path, df, lora_path=None, num_samples=None):
@@ -117,7 +122,7 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
             content = [{"type": "text", "text": text_content}]
             
             # Handle image
-            if 'image' in row and pd.notna(row['image']):
+            if 'image' in row and row['image'] is not None:
                 img_data = row['image']
                 if isinstance(img_data, dict) and 'bytes' in img_data:
                     img_data = Image.open(io.BytesIO(img_data['bytes']))
@@ -215,31 +220,41 @@ if __name__ == "__main__":
     print(f"Improvement:                         {grpo_acc - base_acc:+.2f}%")
     print("="*70)
 
-    # Print sample outputs with reasoning
+    # Print sample outputs with full reasoning (no truncation)
     print("\n" + "="*70)
-    print("SAMPLE PREDICTIONS (with Reasoning)")
+    print("DETAILED SAMPLE PREDICTIONS (Full Reasoning - 100% Preserved)")
     print("="*70)
     
     for i in range(min(3, len(df))):
-        row = df.iloc[i]
+        row = df[i]
         target_idx = int(row['answer'])
         target = chr(ord('A') + target_idx)
         
-        print(f"\n--- Sample {i+1} ---")
+        print(f"\n{'='*70}")
+        print(f"SAMPLE {i+1}")
+        print(f"{'='*70}")
         print(f"Question: {row['question']}")
-        print(f"✓ Correct Answer: {target}")
-        print(f"\nBase Model:")
-        print(f"  Predicted: {base_answers[i] if base_answers[i] else 'Could not extract'}")
-        print(f"  Correct: {'✓' if base_answers[i] == target else '✗'}")
-        if base_thoughts[i]:
-            print(f"  Reasoning: {base_thoughts[i][:200]}...")
+        print(f"Choices: {row['choices']}")
+        print(f"✓ Ground Truth: {target}")
         
-        print(f"\nGRPO Model:")
-        print(f"  Predicted: {grpo_answers[i] if grpo_answers[i] else 'Could not extract'}")
-        print(f"  Correct: {'✓' if grpo_answers[i] == target else '✗'}")
-        if grpo_thoughts[i]:
-            print(f"  Reasoning: {grpo_thoughts[i][:300]}...")
-        else:
-            print(f"  Reasoning: [No thinking found]")
+        print(f"\n{'-'*70}")
+        print(f"BASE MODEL RESPONSE (No LoRA):")
+        print(f"{'-'*70}")
+        print(f"Predicted Answer: {base_answers[i] if base_answers[i] else '[Could not extract]'}")
+        print(f"Correctness: {'✓ CORRECT' if base_answers[i] == target else '✗ INCORRECT'}")
+        print(f"\n[FULL REASONING]:")
+        print(base_thoughts[i] if base_thoughts[i] else "[No reasoning found]")
+        print(f"\n[FULL RESPONSE TEXT]:")
+        print(base_preds[i])
+        
+        print(f"\n{'-'*70}")
+        print(f"GRPO MODEL RESPONSE (with LoRA):")
+        print(f"{'-'*70}")
+        print(f"Predicted Answer: {grpo_answers[i] if grpo_answers[i] else '[Could not extract]'}")
+        print(f"Correctness: {'✓ CORRECT' if grpo_answers[i] == target else '✗ INCORRECT'}")
+        print(f"\n[FULL REASONING]:")
+        print(grpo_thoughts[i] if grpo_thoughts[i] else "[No reasoning found]")
+        print(f"\n[FULL RESPONSE TEXT]:")
+        print(grpo_preds[i])
     
     print("\n" + "="*70)
