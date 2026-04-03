@@ -48,6 +48,10 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             # GRPOTrainer requires conversational prompts with message dictionaries
             messages = [
                 {
+                    "role": "system",
+                    "content": "You are a logical reasoning AI. You MUST think step-by-step and strictly enclose your entire reasoning process within <think> and </think> tags. After thinking, you MUST output your final answer enclosed within <answer> and </answer> tags."
+                },
+                {
                     "role": "user",
                     "content": [
                         {"type": "image"},
@@ -69,6 +73,10 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             dummy_image = Image.new('RGB', (224, 224), color='white')
             return {
                 "prompt": [
+                    {
+                        "role": "system",
+                        "content": "You are a logical reasoning AI. You MUST think step-by-step and strictly enclose your entire reasoning process within <think> and </think> tags. After thinking, you MUST output your final answer enclosed within <answer> and </answer> tags."
+                    },
                     {
                         "role": "user",
                         "content": [

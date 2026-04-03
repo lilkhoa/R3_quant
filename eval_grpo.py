@@ -128,7 +128,16 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
                     img_data = Image.open(io.BytesIO(img_data['bytes']))
                 content.insert(0, {"type": "image", "image": img_data})
 
-            messages = [{"role": "user", "content": content}]
+            messages = [
+                {
+                    "role": "system", 
+                    "content": "You are a logical reasoning AI. You MUST think step-by-step and strictly enclose your entire reasoning process within <think> and </think> tags. After thinking, you MUST output your final answer enclosed within <answer> and </answer> tags."
+                },
+                {
+                    "role": "user", 
+                    "content": content
+                }
+            ]
             
             text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             image_inputs, video_inputs = process_vision_info(messages)

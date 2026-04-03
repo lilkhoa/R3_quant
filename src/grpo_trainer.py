@@ -38,7 +38,7 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
 
     training_args = GRPOConfig(
         output_dir=output_dir,
-        learning_rate=1e-6,
+        learning_rate=5e-5,
         lr_scheduler_type="cosine",
         logging_steps=1,           
         max_steps=500,
