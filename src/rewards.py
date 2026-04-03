@@ -44,23 +44,41 @@ def _check_tag_ordering(content: str) -> tuple[bool, bool]:
 
 def format_reward_func(completions, **kwargs) -> list[float]:
     """
-    Enforce strict tag ordering with partial rewards.
-    - Valid <think>...</think> pair: +0.4 points
-    - Valid <answer>...</answer> pair in correct position (after </think>): +0.6 points
+    "Give Candy to Encourage" approach: scattered rewards for tag components.
+    Instead of all-or-nothing, reward each tag component separately to create
+    score variance and allow GRPO to pick up on partial tag attempts.
     
-    Prevents cheating: model cannot generate answer first then think tag.
+    Rewards:
+    - Contains <think> tag: +0.1
+    - Contains </think> tag: +0.1
+    - Contains <answer> tag: +0.1
+    - Contains </answer> tag: +0.1
+    - Correct ordering (<answer> after <think>): +0.2
+    
+    Max possible reward: 0.6 (all tags present + correct order)
+    Even if only one accidental tag appears, model gets +0.1 reward signal.
     """
     rewards = []
     for comp in completions:
         content = comp[0]["content"] if isinstance(comp, list) else comp
         
-        has_valid_think, has_valid_answer = _check_tag_ordering(content)
-        
         reward = 0.0
-        if has_valid_think:
-            reward += 0.4
-        if has_valid_answer:
-            reward += 0.6
+        
+        # Check for presence of each tag (scattered rewards)
+        if "<think>" in content:
+            reward += 0.1
+        if "</think>" in content:
+            reward += 0.1
+        if "<answer>" in content:
+            reward += 0.1
+        if "</answer>" in content:
+            reward += 0.1
+        
+        # Bonus for correct ordering: <answer> appears after <think>
+        think_pos = content.find("<think>")
+        answer_pos = content.find("<answer>")
+        if think_pos != -1 and answer_pos != -1 and think_pos < answer_pos:
+            reward += 0.2
         
         rewards.append(reward)
     
