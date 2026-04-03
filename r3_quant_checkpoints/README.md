@@ -8,8 +8,8 @@ tags:
 - transformers
 - trl
 licence: license
-base_model: ./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3
 pipeline_tag: text-generation
+base_model: ./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3
 ---
 
 # Model Card for r3_quant_checkpoints
@@ -39,8 +39,8 @@ This model was trained with GRPO, a method introduced in [DeepSeekMath: Pushing 
 ### Framework versions
 
 - PEFT 0.18.1
-- TRL: 1.0.0.dev0
-- Transformers: 5.3.0
+- TRL: 1.1.0.dev0
+- Transformers: 5.4.0
 - Pytorch: 2.10.0+cu128
 - Datasets: 4.8.3
 - Tokenizers: 0.22.2
@@ -56,7 +56,6 @@ Cite GRPO as:
     year         = 2024,
     eprint       = {arXiv:2402.03300},
 }
-
 ```
 
 Cite TRL as:
