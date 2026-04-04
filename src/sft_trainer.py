@@ -18,6 +18,33 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from model.lora_setup import apply_lora_to_quantized_model
 from src.utils import prepare_scienceqa_for_sft, prepare_minicot_for_sft
 
+def load_local_or_remote_dataset(local_path: str, remote_repo: str, split: str = None):
+    """
+    Load dataset from local parquet file if it exists, otherwise download from Hugging Face.
+    
+    Args:
+        local_path: Path to local parquet file (e.g., "./data/mini_cot/mini_cot_train.parquet")
+        remote_repo: Hugging Face repo ID (e.g., "luodian/mini_cot_8k_verified")
+        split: Dataset split for remote loading (e.g., "validation")
+    
+    Returns:
+        Loaded dataset
+    """
+    if os.path.exists(local_path):
+        print(f"✓ Loading local dataset from: {local_path}")
+        from datasets import load_dataset as hf_load_dataset
+        dataset = hf_load_dataset("parquet", data_files=local_path)
+        if 'train' in dataset:
+            dataset = dataset['train']
+        return dataset
+    else:
+        print(f"⚠ Local file not found. Downloading from Hugging Face: {remote_repo}")
+        if split:
+            dataset = load_dataset(remote_repo, split=split)
+        else:
+            dataset = load_dataset(remote_repo)
+        return dataset
+
 def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, dataset_type: str = "scienceqa"):
     """
     SFT training focused on **format alignment** only.
@@ -76,16 +103,14 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
     print(f"[SFT] Format alignment complete. Ready for GRPO fine-tuning.\n")
 
 if __name__ == "__main__":
-    # Example 1: Train on ScienceQA
-    # raw_scienceqa = load_dataset("derek-thomas/ScienceQA", split="validation")
-    # MODEL_DIR = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
-    # OUTPUT_DIR = r"./sft_checkpoints_scienceqa"
-    # train_sft_format_alignment(MODEL_DIR, raw_scienceqa, OUTPUT_DIR, dataset_type="scienceqa")
-    
-    # Example 2: Train on mini_cot_8k_verified (recommended)
-    raw_minicot = load_dataset("derek-thomas/mini_cot_8k_verified")
-    
     MODEL_DIR = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3" 
-    OUTPUT_DIR = r"./sft_checkpoints" 
+    OUTPUT_DIR = r"./sft_checkpoints"
+    
+    # Load mini_cot dataset from local parquet (if available) or from Hugging Face
+    print("[SFT] Loading mini_cot_8k_verified dataset...")
+    raw_minicot = load_local_or_remote_dataset(
+        local_path="./data/mini_cot/mini_cot_train.parquet",
+        remote_repo="luodian/mini_cot_8k_verified"
+    )
     
     train_sft_format_alignment(MODEL_DIR, raw_minicot, OUTPUT_DIR, dataset_type="minicot")
