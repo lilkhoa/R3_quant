@@ -5,7 +5,7 @@ from datasets import load_dataset
 
 def setup_environment():
     print("--- 1. Khởi tạo cấu trúc thư mục ---")
-    directories = ["data/science_qa", "weights"]
+    directories = ["data/science_qa", "data/mini_cot", "weights"]
     for folder in directories:
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -21,6 +21,26 @@ def download_data():
         print(f"Đã lưu dataset tại: {target_path}")
     else:
         print("Dataset đã tồn tại, bỏ qua bước tải.")
+
+def download_sft_data():
+    print("\n--- 2.5 Đang tải Dataset mini_cot_8k_verified cho SFT Training ---")
+    try:
+        dataset = load_dataset("derek-thomas/mini_cot_8k_verified")
+        
+        target_dir = "./data/mini_cot"
+        target_path = os.path.join(target_dir, "mini_cot_train.parquet")
+        
+        if not os.path.exists(target_path):
+            print(f"Đang tải mini_cot_8k_verified dataset (quá trình này có thể lâu)...")
+            # Save the default split (usually 'train')
+            dataset_split = dataset['train'] if 'train' in dataset else dataset
+            dataset_split.to_parquet(target_path)
+            print(f"Đã lưu SFT dataset tại: {target_path}")
+        else:
+            print("SFT dataset đã tồn tại, bỏ qua bước tải.")
+    except Exception as e:
+        print(f"[WARNING] Không thể tải mini_cot dataset: {e}")
+        print("SFT training sẽ tải từ Hugging Face trực tiếp.")
 
 def download_model():
     print("\n--- 3. Đang tải Model Qwen2-VL-2B-Instruct ---")
@@ -56,5 +76,6 @@ def run_quantizer():
 if __name__ == "__main__":
     setup_environment()
     download_data()
+    download_sft_data()
     download_model()
     run_quantizer()
