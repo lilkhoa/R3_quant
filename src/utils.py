@@ -41,6 +41,7 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             # Ensure RGB mode
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
+            pil_image.thumbnail((768, 768))
             
             # Build prompt text
             text_prompt = build_scienceqa_prompt(item['question'], item['choices'])

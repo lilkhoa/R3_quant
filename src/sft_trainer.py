@@ -93,20 +93,18 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
 
     training_args = SFTConfig(
         output_dir=output_dir,
-        # Higher learning rate for format learning (not memorization)
         learning_rate=1e-4,
+        max_sequence_length=2048,
         lr_scheduler_type="cosine",
-        warmup_steps=50,  # 50 steps warmup (replaces deprecated warmup_ratio)
+        warmup_steps=50,
         logging_steps=10,
-        # For streaming datasets, use max_steps instead of num_train_epochs
-        max_steps=1000,  # Train for 1000 steps (approx 1 epoch for mini_cot)
+        max_steps=1000,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
         fp16=True,
         remove_unused_columns=False,
         report_to="none",
-        # Disable packing to avoid confusing quantized model with multiple samples
         packing=False,
         save_strategy="steps",
         save_steps=500,
