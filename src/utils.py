@@ -242,23 +242,24 @@ class MiniCOTDataset(torch.utils.data.Dataset):
                 if max_samples and count >= max_samples:
                     break
                 
-                # Handle both dict and arrow table formats
+                # Skip items with no required fields
                 try:
-                    if isinstance(item, dict):
-                        if item.get("image") is None:
-                            continue
-                    else:
-                        # Arrow table format
-                        if item["image"] is None:
-                            continue
+                    # Mini-CoT datasets may not have images - that's OK, we'll generate dummy ones
+                    # Just need solution/reasoning
+                    solution = item.get("solution", "") if isinstance(item, dict) else item.get("solution", "")
+                    if not solution or not str(solution).strip():
+                        continue
                 except:
                     continue
                 
+                # Get image if available, otherwise None (will create dummy during __getitem__)
+                image = item.get("image", None) if isinstance(item, dict) else item.get("image", None)
+                
                 self.items.append({
-                    'image': item["image"],
-                    'problem': item.get("problem", "") if isinstance(item, dict) else item["problem"],
-                    'solution': item.get("solution", "") if isinstance(item, dict) else item["solution"],
-                    'original_answer': item.get("original_answer", "") if isinstance(item, dict) else item["original_answer"]
+                    'image': image,
+                    'problem': item.get("problem", "") if isinstance(item, dict) else item.get("problem", ""),
+                    'solution': solution,
+                    'original_answer': item.get("original_answer", "") if isinstance(item, dict) else item.get("original_answer", "")
                 })
                 count += 1
         else:
@@ -301,31 +302,15 @@ class MiniCOTDataset(torch.utils.data.Dataset):
             item = self.items[idx]
         
         try:
-            # Handle None image
-            if item.get("image") is None or item["image"] is None:
-                # Return dummy item if image is missing
-                dummy_image = Image.new('RGB', (224, 224), color='white')
-                return {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "image"},
-                                {"type": "text", "text": "Answer this question."}
-                            ]
-                        },
-                        {
-                            "role": "assistant",
-                            "content": [
-                                {"type": "text", "text": "<think>Unable to process.</think>\n<answer>A</answer>"}
-                            ]
-                        }
-                    ],
-                    "images": [dummy_image]
-                }
+            # Handle None/missing image by creating a placeholder
+            # Many CoT datasets (like mini_cot_8k_verified) don't have images
+            if item.get("image") is None or (isinstance(item, dict) and item.get("image") is None):
+                # Create a white placeholder image with text overlay
+                pil_image = Image.new('RGB', (224, 224), color='white')
+            else:
+                # Convert image to PIL
+                pil_image = _convert_image_to_pil(item['image'])
             
-            # Convert image to PIL
-            pil_image = _convert_image_to_pil(item['image'])
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
             

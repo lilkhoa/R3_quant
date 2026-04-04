@@ -103,8 +103,6 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         per_device_train_batch_size=2,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
-        # Long sequence to capture full reasoning chains + tags
-        max_seq_length=2048,
         fp16=True,
         remove_unused_columns=False,
         report_to="none",
