@@ -135,8 +135,9 @@ if __name__ == "__main__":
     raw_minicot = load_local_or_remote_dataset(
         local_path="./data/mini_cot/mini_cot_train.parquet",
         remote_repo="luodian/mini_cot_8k_verified",
-        max_samples=None,  # Set to a number like 100 for quick testing, or None for full dataset
-        use_streaming=True  # Use streaming mode (recommended for Kaggle)
+        split="train",
+        max_samples=None,  
+        use_streaming=True
     )
     
     train_sft_format_alignment(MODEL_DIR, raw_minicot, OUTPUT_DIR, dataset_type="minicot")
