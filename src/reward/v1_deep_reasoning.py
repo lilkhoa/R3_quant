@@ -44,44 +44,54 @@ def _check_tag_ordering(content: str) -> tuple[bool, bool]:
 
 def format_reward_func(completions, **kwargs) -> list[float]:
     """
-    "Give Candy to Encourage" approach: scattered rewards for tag components.
-    Instead of all-or-nothing, reward each tag component separately to create
-    score variance and allow GRPO to pick up on partial tag attempts.
-    
-    Rewards:
-    - Contains <think> tag: +0.1
-    - Contains </think> tag: +0.1
-    - Contains <answer> tag: +0.1
-    - Contains </answer> tag: +0.1
-    - Correct ordering (<answer> after <think>): +0.2
-    
-    Max possible reward: 0.6 (all tags present + correct order)
-    Even if only one accidental tag appears, model gets +0.1 reward signal.
+    Reward format correctness to break the 'answer-without-think' mode collapse.
+
+    MODE COLLAPSE FIX (Fix A): The previous version gave +0.1 just for having
+    <answer>, so all completions that skip <think> and go straight to <answer>
+    got the same 0.2 reward → zero variance → GRPO cannot learn format.
+
+    New scheme creates a strong pressure toward using <think>:
+      - Has <answer> but NO <think> (lazy shortcut): -0.3  ← penalise this
+      - Has <think> but no <answer>:                  +0.1  ← at least trying
+      - Has both but wrong order:                     +0.1
+      - Has both in correct order (<think>→<answer>): +0.6  ← target behaviour
+
+    The -0.3 vs +0.6 gap (0.9 total) creates strong differential pressure.
+    Even a single completion that accidentally uses <think> will have a different
+    reward from the others, restoring reward_std > 0.
     """
     rewards = []
     for comp in completions:
         content = comp[0]["content"] if isinstance(comp, list) else comp
-        
-        reward = 0.0
-        
-        # Check for presence of each tag (scattered rewards)
-        if "<think>" in content:
-            reward += 0.1
-        if "</think>" in content:
-            reward += 0.1
-        if "<answer>" in content:
-            reward += 0.1
-        if "</answer>" in content:
-            reward += 0.1
-        
-        # Bonus for correct ordering: <answer> appears after <think>
-        think_pos = content.find("<think>")
-        answer_pos = content.find("<answer>")
-        if think_pos != -1 and answer_pos != -1 and think_pos < answer_pos:
-            reward += 0.2
-        
+
+        has_think_open  = "<think>"  in content
+        has_think_close = "</think>" in content
+        has_answer_open  = "<answer>"  in content
+        has_answer_close = "</answer>" in content
+
+        has_any_think  = has_think_open  or has_think_close
+        has_any_answer = has_answer_open or has_answer_close
+
+        if has_any_answer and not has_any_think:
+            # Lazy shortcut: gave answer without reasoning → penalise
+            reward = -0.3
+        elif has_any_think and not has_any_answer:
+            # Started reasoning but forgot to state answer → small credit
+            reward = 0.1
+        elif has_any_think and has_any_answer:
+            # Both present: check ordering
+            think_pos  = content.find("<think>")
+            answer_pos = content.find("<answer>")
+            if think_pos != -1 and answer_pos != -1 and think_pos < answer_pos:
+                reward = 0.6   # Correct structure: think then answer
+            else:
+                reward = 0.1   # Both present but wrong order
+        else:
+            # Completely unstructured output (no tags at all)
+            reward = 0.0
+
         rewards.append(reward)
-    
+
     return rewards
 
 def _extract_answer_letter(text: str) -> str:
@@ -107,61 +117,28 @@ def _extract_answer_letter(text: str) -> str:
 
 def accuracy_reward_func(completions, ground_truth, **kwargs) -> list[float]:
     """
-    Extract answer letter from <answer> tag using regex and compare with ground truth.
-    Implements soft accuracy with partial credit for reasoning.
-    - Exact match: +1.0
-    - Incorrect but correct answer appears in reasoning: +0.3 to +0.4 (consolation bonus)
-    - Otherwise: 0.0
+    Clean binary accuracy: 1.0 if the extracted answer letter matches ground truth, else 0.0.
+
+    FIX (Fix C): The previous version had a consolation score (0.3-0.4) based on
+    the correct letter appearing in think content. But since the model currently
+    never produces <think> content, think_text is always "", making the consolation
+    branch dead code. Remove it to keep the reward clean and interpretable.
+    The format and reasoning rewards already provide the 'partial credit' signal;
+    accuracy should remain a clean binary signal.
     """
     rewards = []
     for comp, truth in zip(completions, ground_truth):
         content = comp[0]["content"] if isinstance(comp, list) else comp
         answer_text = extract_xml_answer(content)
-        think_text = extract_think_content(content)
-        
-        # Extract answer letter using regex
+
         pred_letter = _extract_answer_letter(answer_text)
-        
-        # Get ground truth letter and normalize
+
         truth_letter = _extract_answer_letter(truth)
         if not truth_letter:
             truth_letter = truth.upper().strip()
-        
-        # Primary score: exact match
-        if pred_letter == truth_letter:
-            rewards.append(1.0)
-        else:
-            # Soft accuracy: check if correct answer appears in reasoning with conclusive language
-            # Look for patterns like "therefore A", "answer A", "conclusion A", etc.
-            consolation_score = 0.0
-            truth_lower = truth_letter.lower()
-            truth_upper = truth_letter.upper()
-            
-            # Count occurrences of truth letter in think content
-            truth_count = think_text.count(truth_letter)
-            
-            # Look for conclusion-style patterns
-            conclusion_patterns = [
-                rf'therefore\s+{truth_upper}\s',
-                rf'therefore\s+{truth_lower}\s',
-                rf'answer\s+{truth_upper}\s',
-                rf'answer\s+{truth_lower}\s',
-                rf'conclusion\s+{truth_upper}\s',
-                rf'conclusion\s+{truth_lower}\s',
-                rf'correct.*?{truth_upper}\s',
-                rf'correct.*?{truth_lower}\s',
-            ]
-            
-            has_conclusion = any(re.search(pattern, think_text, re.IGNORECASE) for pattern in conclusion_patterns)
-            
-            # Award partial credit if correct answer appears multiple times OR in conclusion
-            if truth_count >= 2 or has_conclusion:
-                consolation_score = 0.3
-                if truth_count >= 3:  # Extra bonus for very strong signal
-                    consolation_score = 0.4
-            
-            rewards.append(consolation_score)
-    
+
+        rewards.append(1.0 if pred_letter == truth_letter else 0.0)
+
     return rewards
 
 def reasoning_length_reward_func(completions, **kwargs) -> list[float]:
@@ -198,13 +175,21 @@ def reasoning_length_reward_func(completions, **kwargs) -> list[float]:
 
 def logic_structure_reward_func(completions, **kwargs) -> list[float]:
     """
-    Check whether model is reasoning logically or generating filler text.
-    Scans for logical transition keywords that indicate actual reasoning vs. rambling.
-    
-    - 2-3+ keywords found: +0.3 (structured reasoning)
-    - No keywords found: -0.3 (likely meaningless text to reach length target)
+    Reward structured reasoning in <think> content.
+
+    FIX (Fix B): The previous version gave -0.3 when think_content was EMPTY.
+    Since the model currently never produces <think> content, ALL completions
+    got -0.3 → reward_std=0 → this reward contributes nothing but a constant
+    negative offset that hurts exploration.
+
+    New scheme: only evaluate completions that actually attempt reasoning.
+    Empty think → 0.0 (neutral). Only penalise BAD reasoning (filler without
+    logical keywords), and reward GOOD reasoning.
+
+      - No <think> content (empty):               0.0  ← neutral, not punished
+      - Has think content, < 2 logic keywords:   -0.2  ← filler text penalty
+      - Has think content, 2+ logic keywords:    +0.3  ← structured reasoning
     """
-    # Logical transition keywords that indicate structured reasoning
     logical_keywords = [
         r'\bbecause\b',
         r'\btherefore\b',
@@ -217,30 +202,27 @@ def logic_structure_reward_func(completions, **kwargs) -> list[float]:
         r'\bnotice\b',
         r'\bidentify',
     ]
-    
+
     rewards = []
-    
     for comp in completions:
         content = comp[0]["content"] if isinstance(comp, list) else comp
         think_content = extract_think_content(content)
-        
+
         if not think_content:
-            # Empty reasoning = no logic structure
-            rewards.append(-0.3)
+            # Model skipped <think> entirely: neutral (format_reward already penalises this)
+            rewards.append(0.0)
             continue
-        
-        # Count keyword matches (case-insensitive)
-        keyword_count = 0
-        for keyword_pattern in logical_keywords:
-            matches = re.findall(keyword_pattern, think_content, re.IGNORECASE)
-            keyword_count += len(matches)
-        
-        # Award or penalize based on keyword density
+
+        keyword_count = sum(
+            len(re.findall(pattern, think_content, re.IGNORECASE))
+            for pattern in logical_keywords
+        )
+
         if keyword_count >= 2:
-            rewards.append(0.3)  # Structured reasoning detected
+            rewards.append(0.3)   # Structured reasoning
         else:
-            rewards.append(-0.3)  # Likely filler text
-    
+            rewards.append(-0.2)  # Has think content but it's filler
+
     return rewards
 
 _log_counter = 0

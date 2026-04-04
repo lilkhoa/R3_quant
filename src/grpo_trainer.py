@@ -44,20 +44,23 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         logging_steps=1,
         max_steps=500,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
+        # FIX (Fix F): Halved from 4 → 2 to double update frequency and help
+        # escape mode collapse plateau faster.
+        gradient_accumulation_steps=2,
         gradient_checkpointing=True,
-        num_generations=4,
-        # FIX Bug #3: 4096 → 512. With 4 generations on a T4 (16GB), generating
-        # 4×4096 tokens per step causes VRAM exhaustion, forcing the model to EOS
-        # immediately (observed: mean_length=4.25, max_length=10).
+        # FIX (Fix D): Raised from 4 → 8. More completions per batch means more
+        # reward variance within each batch, reducing fraction of steps with loss=0.
+        # With T4x2 (32GB) and max_completion_length=512: 8*512=4096 tokens/prompt
+        # should fit. Roll back to 6 if OOM.
+        num_generations=8,
         max_completion_length=512,
-        # FIX Bug #6: T4 GPUs (Turing, Kaggle) do NOT natively support bfloat16.
-        # bf16=True on a T4 silently falls back to fp32, wasting VRAM. Use fp16.
         fp16=True,
         remove_unused_columns=False,
         report_to="none",
-        # Temperature for generation diversity (so completions differ → reward_std > 0)
-        temperature=0.9,
+        # FIX (Fix D): Raised from 0.9 → 1.1 to force more diverse completions.
+        # At 0.9 the 3-bit quantized model was near-greedy, producing nearly
+        # identical outputs. 1.1 increases stochasticity without breaking coherence.
+        temperature=1.1,
     )
 
     reward_funcs = [

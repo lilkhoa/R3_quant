@@ -100,33 +100,21 @@ class ScienceQAGRPODataset(torch.utils.data.Dataset):
             }
 
 def build_scienceqa_prompt(question: str, choices: list) -> str:
-    prompt = (
-        "You are a logical reasoning AI. You MUST follow the exact format below.\n\n"
-        "--- EXAMPLE ---\n"
-        "Question: Which number is larger, 3 or 5?\n"
-        "Choices:\n"
-        "A. 3\n"
-        "B. 5\n"
-        "Response:\n"
-        "<think>\n"
-        "The question asks to compare the numbers 3 and 5. Since 5 is greater than 3, the correct choice is B.\n"
-        "</think>\n"
-        "<answer>B</answer>\n"
-        "--- END EXAMPLE ---\n\n"
-        "Now, solve the following real question in the exact same format.\n\n"
-    )
-    
-    prompt += f"Question: {question}\n"
-    
+    # FIX (Fix E): Removed the verbose few-shot example that was embedded here.
+    # The system message already instructs the model on the <think>/<answer> format,
+    # so repeating a full example in the user turn wastes ~80 tokens per question.
+    # Keeping it minimal: question + choices + "Response:" cue.
+    prompt = f"Question: {question}\n"
+
     labels = ["A", "B", "C", "D", "E"]
     if choices:
         prompt += "Choices:\n"
         for i, choice in enumerate(choices):
             prompt += f"{labels[i]}. {choice}\n"
-    
+
     prompt += "\nResponse:\n"
-    
     return prompt
+
 
 def _convert_image_to_pil(image_data):
     """Convert image data from HuggingFace format to PIL Image."""
