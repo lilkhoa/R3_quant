@@ -94,7 +94,6 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
     training_args = SFTConfig(
         output_dir=output_dir,
         learning_rate=1e-4,
-        max_seq_length=2048,
         lr_scheduler_type="cosine",
         warmup_steps=50,
         logging_steps=10,
@@ -115,6 +114,7 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         processing_class=processor,
         args=training_args,
         train_dataset=sft_dataset,
+        max_seq_length=2048,
     )
 
     trainer.train()
