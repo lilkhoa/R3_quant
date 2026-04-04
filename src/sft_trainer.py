@@ -18,31 +18,56 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from model.lora_setup import apply_lora_to_quantized_model
 from src.utils import prepare_scienceqa_for_sft, prepare_minicot_for_sft
 
-def load_local_or_remote_dataset(local_path: str, remote_repo: str, split: str = None):
+def load_local_or_remote_dataset(local_path: str, remote_repo: str, split: str = None, max_samples: int = None, use_streaming: bool = True):
     """
-    Load dataset from local parquet file if it exists, otherwise download from Hugging Face.
+    Load dataset from Hugging Face using streaming (memory-efficient) or local parquet.
+    
+    Streaming mode loads data batch-by-batch during training, avoiding RAM overflow on Kaggle.
     
     Args:
-        local_path: Path to local parquet file (e.g., "./data/mini_cot/mini_cot_train.parquet")
+        local_path: Path to local parquet file (fallback only, not recommended for large datasets)
         remote_repo: Hugging Face repo ID (e.g., "luodian/mini_cot_8k_verified")
-        split: Dataset split for remote loading (e.g., "validation")
+        split: Dataset split for remote loading (default: None, loads all)
+        max_samples: Limit number of samples to load (optional, for testing)
+        use_streaming: If True, use streaming mode (recommended for Kaggle). If False, download full dataset.
     
     Returns:
-        Loaded dataset
+        Loaded dataset (streamed or cached)
     """
-    if os.path.exists(local_path):
+    if use_streaming:
+        # Use streaming mode: loads data on-the-fly during training (memory-efficient)
+        print(f"🔄 Loading dataset from Hugging Face in STREAMING mode (memory-efficient)...")
+        print(f"   Repo: {remote_repo}")
+        
+        if split:
+            dataset = load_dataset(remote_repo, split=split, streaming=True)
+        else:
+            dataset = load_dataset(remote_repo, streaming=True)
+        
+        # Limit samples if needed
+        if max_samples:
+            dataset = dataset.take(max_samples)
+            print(f"✓ Limited to {max_samples} samples")
+        
+        return dataset
+    
+    elif os.path.exists(local_path):
+        # Fallback: Load from local parquet (only if exist and streaming disabled)
         print(f"✓ Loading local dataset from: {local_path}")
+        print(f"   ⚠ Note: Local loading uses more RAM. Consider using streaming mode instead.")
         from datasets import load_dataset as hf_load_dataset
         dataset = hf_load_dataset("parquet", data_files=local_path)
         if 'train' in dataset:
             dataset = dataset['train']
         return dataset
+    
     else:
-        print(f"⚠ Local file not found. Downloading from Hugging Face: {remote_repo}")
+        # Final fallback: Download and stream
+        print(f"⚠ Local file not found. Streaming from Hugging Face: {remote_repo}")
         if split:
-            dataset = load_dataset(remote_repo, split=split)
+            dataset = load_dataset(remote_repo, split=split, streaming=True)
         else:
-            dataset = load_dataset(remote_repo)
+            dataset = load_dataset(remote_repo, streaming=True)
         return dataset
 
 def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, dataset_type: str = "scienceqa"):
@@ -73,8 +98,8 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
         logging_steps=10,
-        # Quick training to avoid overfitting and memorization
-        num_train_epochs=1,
+        # For streaming datasets, use max_steps instead of num_train_epochs
+        max_steps=1000,  # Train for 1000 steps (approx 1 epoch for mini_cot)
         per_device_train_batch_size=2,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
@@ -85,7 +110,8 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         report_to="none",
         # Disable packing to avoid confusing quantized model with multiple samples
         packing=False,
-        save_strategy="epoch",
+        save_strategy="steps",
+        save_steps=500,
     )
 
     trainer = SFTTrainer(
@@ -106,11 +132,13 @@ if __name__ == "__main__":
     MODEL_DIR = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3" 
     OUTPUT_DIR = r"./sft_checkpoints"
     
-    # Load mini_cot dataset from local parquet (if available) or from Hugging Face
+    # Load mini_cot dataset in STREAMING mode (Kaggle-friendly, memory-efficient)
     print("[SFT] Loading mini_cot_8k_verified dataset...")
     raw_minicot = load_local_or_remote_dataset(
         local_path="./data/mini_cot/mini_cot_train.parquet",
-        remote_repo="luodian/mini_cot_8k_verified"
+        remote_repo="luodian/mini_cot_8k_verified",
+        max_samples=None,  # Set to a number like 100 for quick testing, or None for full dataset
+        use_streaming=True  # Use streaming mode (recommended for Kaggle)
     )
     
     train_sft_format_alignment(MODEL_DIR, raw_minicot, OUTPUT_DIR, dataset_type="minicot")
