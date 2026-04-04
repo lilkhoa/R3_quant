@@ -217,6 +217,8 @@ class MiniCOTDataset(torch.utils.data.Dataset):
     Custom dataset for mini_cot_8k_verified SFT training.
     Wraps reasoning chains in <think></think> tags and answers in <answer></answer> tags.
     
+    Supports both streaming and non-streaming datasets.
+    
     Dataset columns:
     - image: PIL Image or dict with image data
     - problem: Question with choices
@@ -225,37 +227,110 @@ class MiniCOTDataset(torch.utils.data.Dataset):
     - original_answer: Original answer format
     """
     def __init__(self, raw_dataset, max_samples=None):
-        self.items = []
-        count = 0
+        self.raw_dataset = raw_dataset
+        self.max_samples = max_samples
         
-        for item in raw_dataset:
-            if max_samples and count >= max_samples:
-                break
-            if item.get("image") is None:
-                continue
+        # Check if dataset is streaming (has no len)
+        self.is_streaming = not hasattr(raw_dataset, '__len__')
+        
+        if not self.is_streaming:
+            # For non-streaming datasets, pre-load and filter items
+            self.items = []
+            count = 0
             
-            self.items.append({
-                'image': item["image"],
-                'problem': item.get("problem", ""),
-                'solution': item.get("solution", ""),
-                'original_answer': item.get("original_answer", "")
-            })
-            count += 1
+            for item in raw_dataset:
+                if max_samples and count >= max_samples:
+                    break
+                
+                # Handle both dict and arrow table formats
+                try:
+                    if isinstance(item, dict):
+                        if item.get("image") is None:
+                            continue
+                    else:
+                        # Arrow table format
+                        if item["image"] is None:
+                            continue
+                except:
+                    continue
+                
+                self.items.append({
+                    'image': item["image"],
+                    'problem': item.get("problem", "") if isinstance(item, dict) else item["problem"],
+                    'solution': item.get("solution", "") if isinstance(item, dict) else item["solution"],
+                    'original_answer': item.get("original_answer", "") if isinstance(item, dict) else item["original_answer"]
+                })
+                count += 1
+        else:
+            # For streaming datasets, don't preload - handle lazily
+            self.items = None
+            print(f"[INFO] Using streaming dataset (lazy loading)")
     
     def __len__(self):
+        if self.is_streaming:
+            # For streaming datasets, estimate length or use a default
+            return 8000  # Approximate length for mini_cot_8k_verified
         return len(self.items)
     
     def __getitem__(self, idx):
-        item = self.items[idx]
+        # For streaming datasets, we need to handle differently
+        if self.is_streaming:
+            # Skip to index (inefficient but necessary for streaming)
+            if idx == 0:
+                self._stream_iter = iter(self.raw_dataset)
+            
+            if not hasattr(self, '_stream_iter'):
+                self._stream_iter = iter(self.raw_dataset)
+                
+            # Get the item at this index by iterating
+            item = None
+            for i, row in enumerate(self._stream_iter):
+                if i == idx:
+                    item = row
+                    break
+            
+            if item is None:
+                # Fallback: return dummy item
+                item = {
+                    'image': None,
+                    'problem': "Question",
+                    'solution': "Answer",
+                    'original_answer': "A"
+                }
+        else:
+            item = self.items[idx]
         
         try:
+            # Handle None image
+            if item.get("image") is None or item["image"] is None:
+                # Return dummy item if image is missing
+                dummy_image = Image.new('RGB', (224, 224), color='white')
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image"},
+                                {"type": "text", "text": "Answer this question."}
+                            ]
+                        },
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": "<think>Unable to process.</think>\n<answer>A</answer>"}
+                            ]
+                        }
+                    ],
+                    "images": [dummy_image]
+                }
+            
             # Convert image to PIL
             pil_image = _convert_image_to_pil(item['image'])
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
             
             # Build user message with problem/question
-            user_text = item['problem']
+            user_text = str(item.get('problem', item['problem'] if not isinstance(item, dict) else ""))
             if not user_text.strip():
                 user_text = "Please answer this question step by step, then provide your final answer."
             
@@ -268,7 +343,7 @@ class MiniCOTDataset(torch.utils.data.Dataset):
             }
             
             # Process solution: wrap in <think> tags if not already wrapped
-            solution_text = item['solution']
+            solution_text = str(item.get('solution', item['solution'] if not isinstance(item, dict) else ""))
             
             # Extract or wrap thinking
             think_match = re.search(r'<think>(.*?)</think>', solution_text, re.DOTALL)
@@ -285,8 +360,7 @@ class MiniCOTDataset(torch.utils.data.Dataset):
                 answer_letter = answer_match.group(1).upper()
             else:
                 # Try to extract from original_answer or last digit in solution
-                # Common formats: "A", "Answer: A", "choice A", "The answer is A"
-                answer_letter = _extract_answer_from_text(solution_text + " " + item['original_answer'])
+                answer_letter = _extract_answer_from_text(solution_text + " " + str(item.get('original_answer', item['original_answer'] if not isinstance(item, dict) else "")))
                 if not answer_letter:
                     answer_letter = "A"  # Default fallback
             
