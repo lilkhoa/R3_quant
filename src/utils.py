@@ -2,7 +2,7 @@ import torch
 import re
 import io
 from PIL import Image
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 
 class ScienceQAGRPODataset(torch.utils.data.Dataset):
     """
@@ -230,6 +230,11 @@ class MiniCOTDataset(torch.utils.data.Dataset):
         self.raw_dataset = raw_dataset
         self.max_samples = max_samples
         
+        # FIX #1: Unwrap DatasetDict if present
+        if isinstance(raw_dataset, DatasetDict):
+            raw_dataset = raw_dataset["train"]
+            self.raw_dataset = raw_dataset
+        
         # Check if dataset is streaming (has no len)
         self.is_streaming = not hasattr(raw_dataset, '__len__')
         
@@ -248,16 +253,10 @@ class MiniCOTDataset(torch.utils.data.Dataset):
                     print(f"[DEBUG] First item keys: {item.keys() if isinstance(item, dict) else 'Not a dict'}")
                     first_item_logged = True
                 
-                # Skip items with no required fields
+                # FIX #2: Remove column guessing logic, directly access fixed columns
                 try:
-                    # Mini-CoT datasets may have various field names for reasoning
-                    # Try: solution, output, cot, explanation, chain_of_thought
-                    solution = ""
-                    for field_name in ["solution", "output", "cot", "explanation", "chain_of_thought"]:
-                        candidate = item.get(field_name, "") if isinstance(item, dict) else item.get(field_name, "")
-                        if candidate and str(candidate).strip():
-                            solution = candidate
-                            break
+                    # Dataset structure is strictly fixed to these five columns
+                    solution = item.get("solution", "")
                     
                     # If no solution field found, skip
                     if not solution or not str(solution).strip():
@@ -266,24 +265,12 @@ class MiniCOTDataset(torch.utils.data.Dataset):
                     print(f"[DEBUG] Error extracting solution: {e}")
                     continue
                 
-                # Try multiple field names for problem/question
-                problem = ""
-                for field_name in ["problem", "question", "instruction", "prompt"]:
-                    candidate = item.get(field_name, "") if isinstance(item, dict) else item.get(field_name, "")
-                    if candidate and str(candidate).strip():
-                        problem = candidate
-                        break
-                
-                # Try multiple field names for answer
-                answer = ""
-                for field_name in ["original_answer", "answer", "label"]:
-                    candidate = item.get(field_name, "") if isinstance(item, dict) else item.get(field_name, "")
-                    if candidate and str(candidate).strip():
-                        answer = candidate
-                        break
+                # Directly access the fixed column names
+                problem = item.get("problem", "")
+                answer = item.get("original_answer", "")
                 
                 # Get image if available, otherwise None (will create dummy during __getitem__)
-                image = item.get("image", None) if isinstance(item, dict) else item.get("image", None)
+                image = item.get("image", None)
                 
                 self.items.append({
                     'image': image,
@@ -329,27 +316,10 @@ class MiniCOTDataset(torch.utils.data.Dataset):
                     'original_answer': "A"
                 }
             
-            # Extract fields with multiple fallback names (same as __init__)
-            solution = ""
-            for field_name in ["solution", "output", "cot", "explanation", "chain_of_thought"]:
-                candidate = raw_item.get(field_name, "") if isinstance(raw_item, dict) else raw_item.get(field_name, "")
-                if candidate and str(candidate).strip():
-                    solution = candidate
-                    break
-            
-            problem = ""
-            for field_name in ["problem", "question", "instruction", "prompt"]:
-                candidate = raw_item.get(field_name, "") if isinstance(raw_item, dict) else raw_item.get(field_name, "")
-                if candidate and str(candidate).strip():
-                    problem = candidate
-                    break
-            
-            answer = ""
-            for field_name in ["original_answer", "answer", "label"]:
-                candidate = raw_item.get(field_name, "") if isinstance(raw_item, dict) else raw_item.get(field_name, "")
-                if candidate and str(candidate).strip():
-                    answer = candidate
-                    break
+            # FIX #2: Remove column guessing logic, directly access fixed columns
+            solution = raw_item.get("solution", "")
+            problem = raw_item.get("problem", "")
+            answer = raw_item.get("original_answer", "")
             
             # Construct item dict with normalized field names
             item = {
@@ -388,7 +358,9 @@ class MiniCOTDataset(torch.utils.data.Dataset):
             }
             
             # Process solution: wrap in <think> tags if not already wrapped
-            solution_text = str(item.get('solution', item['solution'] if not isinstance(item, dict) else ""))
+            # FIX #3: Force-cast solution to string before regex to prevent TypeError from None values
+            solution = item.get('solution', "")
+            solution_text = str(solution) if solution is not None else ""
             
             # Extract or wrap thinking
             think_match = re.search(r'<think>(.*?)</think>', solution_text, re.DOTALL)
