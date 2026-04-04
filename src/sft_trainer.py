@@ -82,7 +82,7 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         dataset_type: "scienceqa" or "minicot"
     """
     processor = AutoProcessor.from_pretrained(model_dir)
-
+    processor.tokenizer.model_max_length = 4096
     peft_model = apply_lora_to_quantized_model(model_dir)
     
     # Load appropriate dataset
@@ -114,7 +114,6 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         processing_class=processor,
         args=training_args,
         train_dataset=sft_dataset,
-        max_seq_length=2048,
     )
 
     trainer.train()
