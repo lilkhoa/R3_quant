@@ -136,5 +136,6 @@ if __name__ == "__main__":
         max_samples=None,  
         use_streaming=True
     )
+    raw_minicot = raw_minicot.filter(lambda x: len(str(x.get('solution', ''))) <= 800)
     
     train_sft_format_alignment(MODEL_DIR, raw_minicot, OUTPUT_DIR, dataset_type="minicot")
