@@ -237,29 +237,59 @@ class MiniCOTDataset(torch.utils.data.Dataset):
             # For non-streaming datasets, pre-load and filter items
             self.items = []
             count = 0
+            first_item_logged = False
             
             for item in raw_dataset:
                 if max_samples and count >= max_samples:
                     break
                 
+                # Debug: print first item's structure
+                if not first_item_logged:
+                    print(f"[DEBUG] First item keys: {item.keys() if isinstance(item, dict) else 'Not a dict'}")
+                    first_item_logged = True
+                
                 # Skip items with no required fields
                 try:
-                    # Mini-CoT datasets may not have images - that's OK, we'll generate dummy ones
-                    # Just need solution/reasoning
-                    solution = item.get("solution", "") if isinstance(item, dict) else item.get("solution", "")
+                    # Mini-CoT datasets may have various field names for reasoning
+                    # Try: solution, output, cot, explanation, chain_of_thought
+                    solution = ""
+                    for field_name in ["solution", "output", "cot", "explanation", "chain_of_thought"]:
+                        candidate = item.get(field_name, "") if isinstance(item, dict) else item.get(field_name, "")
+                        if candidate and str(candidate).strip():
+                            solution = candidate
+                            break
+                    
+                    # If no solution field found, skip
                     if not solution or not str(solution).strip():
                         continue
-                except:
+                except Exception as e:
+                    print(f"[DEBUG] Error extracting solution: {e}")
                     continue
+                
+                # Try multiple field names for problem/question
+                problem = ""
+                for field_name in ["problem", "question", "instruction", "prompt"]:
+                    candidate = item.get(field_name, "") if isinstance(item, dict) else item.get(field_name, "")
+                    if candidate and str(candidate).strip():
+                        problem = candidate
+                        break
+                
+                # Try multiple field names for answer
+                answer = ""
+                for field_name in ["original_answer", "answer", "label"]:
+                    candidate = item.get(field_name, "") if isinstance(item, dict) else item.get(field_name, "")
+                    if candidate and str(candidate).strip():
+                        answer = candidate
+                        break
                 
                 # Get image if available, otherwise None (will create dummy during __getitem__)
                 image = item.get("image", None) if isinstance(item, dict) else item.get("image", None)
                 
                 self.items.append({
                     'image': image,
-                    'problem': item.get("problem", "") if isinstance(item, dict) else item.get("problem", ""),
+                    'problem': problem,
                     'solution': solution,
-                    'original_answer': item.get("original_answer", "") if isinstance(item, dict) else item.get("original_answer", "")
+                    'original_answer': answer
                 })
                 count += 1
         else:
@@ -284,20 +314,50 @@ class MiniCOTDataset(torch.utils.data.Dataset):
                 self._stream_iter = iter(self.raw_dataset)
                 
             # Get the item at this index by iterating
-            item = None
+            raw_item = None
             for i, row in enumerate(self._stream_iter):
                 if i == idx:
-                    item = row
+                    raw_item = row
                     break
             
-            if item is None:
+            if raw_item is None:
                 # Fallback: return dummy item
-                item = {
+                raw_item = {
                     'image': None,
                     'problem': "Question",
                     'solution': "Answer",
                     'original_answer': "A"
                 }
+            
+            # Extract fields with multiple fallback names (same as __init__)
+            solution = ""
+            for field_name in ["solution", "output", "cot", "explanation", "chain_of_thought"]:
+                candidate = raw_item.get(field_name, "") if isinstance(raw_item, dict) else raw_item.get(field_name, "")
+                if candidate and str(candidate).strip():
+                    solution = candidate
+                    break
+            
+            problem = ""
+            for field_name in ["problem", "question", "instruction", "prompt"]:
+                candidate = raw_item.get(field_name, "") if isinstance(raw_item, dict) else raw_item.get(field_name, "")
+                if candidate and str(candidate).strip():
+                    problem = candidate
+                    break
+            
+            answer = ""
+            for field_name in ["original_answer", "answer", "label"]:
+                candidate = raw_item.get(field_name, "") if isinstance(raw_item, dict) else raw_item.get(field_name, "")
+                if candidate and str(candidate).strip():
+                    answer = candidate
+                    break
+            
+            # Construct item dict with normalized field names
+            item = {
+                'image': raw_item.get("image", None) if isinstance(raw_item, dict) else raw_item.get("image", None),
+                'problem': problem,
+                'solution': solution,
+                'original_answer': answer
+            }
         else:
             item = self.items[idx]
         

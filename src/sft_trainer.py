@@ -96,7 +96,7 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         # Higher learning rate for format learning (not memorization)
         learning_rate=1e-4,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.05,
+        warmup_steps=50,  # 50 steps warmup (replaces deprecated warmup_ratio)
         logging_steps=10,
         # For streaming datasets, use max_steps instead of num_train_epochs
         max_steps=1000,  # Train for 1000 steps (approx 1 epoch for mini_cot)
