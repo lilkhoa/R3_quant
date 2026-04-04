@@ -43,14 +43,13 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         lr_scheduler_type="cosine",
         logging_steps=1,
         max_steps=500,
-        per_device_train_batch_size=1,
+        # FIX: Increased from 1 → 2 to satisfy divisibility constraint.
+        # generation_batch_size = per_device_batch_size * num_devices = 2 * 2 = 4
+        # num_generations = 4, divisibility check: 4 % 4 == 0 ✓
+        # Memory usage per GPU: 2 samples × 4 completions × 512 tokens = manageable with fp16 + gradient_checkpointing
+        per_device_train_batch_size=2,
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
-        # FIX: Reduced from 8 → 4 to match T4x2 constraints.
-        # generation_batch_size = per_device_batch_size * num_devices = 1 * 2 = 2
-        # num_generations must divide evenly into generation_batch_size.
-        # num_generations=4 ÷ generation_batch_size=2 = 2 completions per sample (OK)
-        # Reduces reward variance slightly but maintains gradient flow.
         num_generations=4,
         max_completion_length=512,
         fp16=True,
