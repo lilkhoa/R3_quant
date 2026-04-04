@@ -13,6 +13,7 @@ import torch
 from trl import GRPOConfig, GRPOTrainer
 from transformers import AutoProcessor
 from datasets import load_dataset
+from peft import PeftModel
 
 # Suppress specific deprecation warnings that don't affect functionality
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch.jit")
@@ -29,11 +30,36 @@ from src.reward.v1_deep_reasoning import (
 )
 from src.utils import prepare_scienceqa_for_grpo 
 
-def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
+def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str, sft_checkpoint_dir: str = None):
+    """
+    GRPO training with optional SFT warm-start.
+    
+    Args:
+        model_dir: Path to base quantized model
+        train_data: Dataset for GRPO training
+        output_dir: Where to save GRPO LoRA checkpoint
+        sft_checkpoint_dir: Optional path to pre-trained SFT LoRA checkpoint
+                           If provided, loads format-aligned weights before GRPO
+    """
 
     processor = AutoProcessor.from_pretrained(model_dir)
 
+    # Initialize base model with LoRA
     peft_model = apply_lora_to_quantized_model(model_dir)
+    
+    # Load SFT weights if available (warm-start with format alignment)
+    if sft_checkpoint_dir and os.path.exists(sft_checkpoint_dir):
+        print(f"[GRPO] Loading SFT LoRA weights from: {sft_checkpoint_dir}")
+        try:
+            peft_model = PeftModel.from_pretrained(peft_model, sft_checkpoint_dir)
+            print(f"[GRPO] ✓ SFT LoRA weights loaded. Model now format-aligned.\n")
+        except Exception as e:
+            print(f"[GRPO] Warning: Could not load SFT weights: {e}")
+            print(f"[GRPO] Proceeding with base LoRA initialization.\n")
+    else:
+        if sft_checkpoint_dir:
+            print(f"[GRPO] SFT checkpoint not found at: {sft_checkpoint_dir}")
+        print(f"[GRPO] Training GRPO from scratch (no SFT warm-start).\n")
     
     grpo_dataset = prepare_scienceqa_for_grpo(train_data, processor)
 
@@ -43,10 +69,6 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         lr_scheduler_type="cosine",
         logging_steps=1,
         max_steps=500,
-        # FIX: Increased from 1 → 2 to satisfy divisibility constraint.
-        # generation_batch_size = per_device_batch_size * num_devices = 2 * 2 = 4
-        # num_generations = 4, divisibility check: 4 % 4 == 0 ✓
-        # Memory usage per GPU: 2 samples × 4 completions × 512 tokens = manageable with fp16 + gradient_checkpointing
         per_device_train_batch_size=2,
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
@@ -76,14 +98,22 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
 
     trainer.train()
     
-    print(f"\nĐang lưu mô hình LoRA tại: {output_dir}")
+    print(f"\n[GRPO] Saving LoRA checkpoint to: {output_dir}")
     trainer.save_model(output_dir)
-    processor.save_pretrained(output_dir) 
+    processor.save_pretrained(output_dir)
+    print(f"[GRPO] Training complete!\n")
 
 if __name__ == "__main__":
     raw_scienceqa = load_dataset("derek-thomas/ScienceQA", split="validation")
     
     MODEL_DIR = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
+    SFT_CHECKPOINT_DIR = r"./sft_checkpoints"  # From SFT stage (optional)
     OUTPUT_DIR = r"./r3_quant_checkpoints"
     
-    train_r3_quant_grpo(MODEL_DIR, raw_scienceqa, OUTPUT_DIR)
+    # Train GRPO with optional SFT warm-start
+    train_r3_quant_grpo(
+        MODEL_DIR, 
+        raw_scienceqa, 
+        OUTPUT_DIR,
+        sft_checkpoint_dir=SFT_CHECKPOINT_DIR  # Load SFT weights if they exist
+    )

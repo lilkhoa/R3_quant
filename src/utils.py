@@ -1,4 +1,5 @@
 import torch
+import re
 import io
 from PIL import Image
 from datasets import Dataset
@@ -210,3 +211,164 @@ def prepare_scienceqa_for_sft(raw_dataset, max_samples=None):
     Returns a dataset that properly handles images without serialization issues.
     """
     return ScienceQASFTDataset(raw_dataset, max_samples=max_samples)
+
+class MiniCOTDataset(torch.utils.data.Dataset):
+    """
+    Custom dataset for mini_cot_8k_verified SFT training.
+    Wraps reasoning chains in <think></think> tags and answers in <answer></answer> tags.
+    
+    Dataset columns:
+    - image: PIL Image or dict with image data
+    - problem: Question with choices
+    - solution: Reasoning chain (may already have tags or raw text)
+    - original_question: Original question (can be used as fallback)
+    - original_answer: Original answer format
+    """
+    def __init__(self, raw_dataset, max_samples=None):
+        self.items = []
+        count = 0
+        
+        for item in raw_dataset:
+            if max_samples and count >= max_samples:
+                break
+            if item.get("image") is None:
+                continue
+            
+            self.items.append({
+                'image': item["image"],
+                'problem': item.get("problem", ""),
+                'solution': item.get("solution", ""),
+                'original_answer': item.get("original_answer", "")
+            })
+            count += 1
+    
+    def __len__(self):
+        return len(self.items)
+    
+    def __getitem__(self, idx):
+        item = self.items[idx]
+        
+        try:
+            # Convert image to PIL
+            pil_image = _convert_image_to_pil(item['image'])
+            if pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            
+            # Build user message with problem/question
+            user_text = item['problem']
+            if not user_text.strip():
+                user_text = "Please answer this question step by step, then provide your final answer."
+            
+            user_message = {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": user_text}
+                ]
+            }
+            
+            # Process solution: wrap in <think> tags if not already wrapped
+            solution_text = item['solution']
+            
+            # Extract or wrap thinking
+            think_match = re.search(r'<think>(.*?)</think>', solution_text, re.DOTALL)
+            if think_match:
+                # Already has tags, extract the content
+                thinking_content = think_match.group(1).strip()
+            else:
+                # No tags yet, use entire solution as reasoning
+                thinking_content = solution_text.strip()
+            
+            # Extract answer letter (A-E, case insensitive)
+            answer_match = re.search(r'<answer>\s*([A-Ea-e])\s*</answer>', solution_text, re.IGNORECASE)
+            if answer_match:
+                answer_letter = answer_match.group(1).upper()
+            else:
+                # Try to extract from original_answer or last digit in solution
+                # Common formats: "A", "Answer: A", "choice A", "The answer is A"
+                answer_letter = _extract_answer_from_text(solution_text + " " + item['original_answer'])
+                if not answer_letter:
+                    answer_letter = "A"  # Default fallback
+            
+            # Build properly formatted assistant response
+            assistant_text = (
+                f"<think>\n{thinking_content}\n</think>\n"
+                f"<answer>{answer_letter}</answer>"
+            )
+            
+            assistant_message = {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": assistant_text}
+                ]
+            }
+            
+            return {
+                "messages": [user_message, assistant_message],
+                "images": [pil_image]
+            }
+        except Exception as e:
+            print(f"Error processing item {idx}: {e}")
+            # Return dummy item
+            dummy_image = Image.new('RGB', (224, 224), color='white')
+            return {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image"},
+                            {"type": "text", "text": "Please answer this question."}
+                        ]
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "<think>Unable to process item.</think>\n<answer>A</answer>"}
+                        ]
+                    }
+                ],
+                "images": [dummy_image]
+            }
+
+def _extract_answer_from_text(text: str) -> str:
+    """Extract answer letter (A-E) from various text formats."""
+    # Priority 1: Look for tagged answer (already checked but check again for safety)
+    match = re.search(r'<answer>\s*([A-Ea-e])\s*</answer>', text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    
+    # Priority 2: Look for "Answer: X" pattern
+    match = re.search(r'[Aa]nswer\s*:?\s*([A-Ea-e])', text)
+    if match:
+        return match.group(1).upper()
+    
+    # Priority 3: Look for "choice X" pattern
+    match = re.search(r'[Cc]hoice\s+([A-Ea-e])', text)
+    if match:
+        return match.group(1).upper()
+    
+    # Priority 4: Look for last occurrence of letter between parens or standalone
+    matches = re.findall(r'([A-Ea-e])', text)
+    if matches:
+        return matches[-1].upper()
+    
+    return ""
+
+def prepare_minicot_for_sft(raw_dataset, max_samples=None):
+    """
+    Prepare mini_cot_8k_verified dataset for SFT training.
+    Wraps reasoning chains in XML tags for format alignment.
+    
+    Args:
+        raw_dataset: HuggingFace dataset with mini_cot data
+        max_samples: Limit number of samples (default: use all)
+    
+    Returns:
+        MiniCOTDataset instance ready for SFT training
+    """
+    dataset = MiniCOTDataset(raw_dataset, max_samples=max_samples)
+    if len(dataset) == 0:
+        print("Warning: Mini-COT dataset is empty after processing.")
+    else:
+        print(f"[SFT] Loaded {len(dataset)} CoT examples for format alignment training.")
+    return dataset
