@@ -44,22 +44,18 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str):
         logging_steps=1,
         max_steps=500,
         per_device_train_batch_size=1,
-        # FIX (Fix F): Halved from 4 → 2 to double update frequency and help
-        # escape mode collapse plateau faster.
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
-        # FIX (Fix D): Raised from 4 → 8. More completions per batch means more
-        # reward variance within each batch, reducing fraction of steps with loss=0.
-        # With T4x2 (32GB) and max_completion_length=512: 8*512=4096 tokens/prompt
-        # should fit. Roll back to 6 if OOM.
-        num_generations=8,
+        # FIX: Reduced from 8 → 4 to match T4x2 constraints.
+        # generation_batch_size = per_device_batch_size * num_devices = 1 * 2 = 2
+        # num_generations must divide evenly into generation_batch_size.
+        # num_generations=4 ÷ generation_batch_size=2 = 2 completions per sample (OK)
+        # Reduces reward variance slightly but maintains gradient flow.
+        num_generations=4,
         max_completion_length=512,
         fp16=True,
         remove_unused_columns=False,
         report_to="none",
-        # FIX (Fix D): Raised from 0.9 → 1.1 to force more diverse completions.
-        # At 0.9 the 3-bit quantized model was near-greedy, producing nearly
-        # identical outputs. 1.1 increases stochasticity without breaking coherence.
         temperature=1.1,
     )
 
