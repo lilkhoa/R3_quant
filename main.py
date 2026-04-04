@@ -25,7 +25,7 @@ def download_data():
 def download_sft_data():
     print("\n--- 2.5 Đang tải Dataset mini_cot_8k_verified cho SFT Training ---")
     try:
-        dataset = load_dataset("derek-thomas/mini_cot_8k_verified")
+        dataset = load_dataset("luodian/mini_cot_8k_verified")
         
         target_dir = "./data/mini_cot"
         target_path = os.path.join(target_dir, "mini_cot_train.parquet")
