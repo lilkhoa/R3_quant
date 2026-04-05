@@ -14,6 +14,7 @@ from trl import GRPOConfig, GRPOTrainer
 from transformers import AutoProcessor
 from datasets import load_dataset
 from peft import PeftModel
+from safetensors.torch import load_file
 
 # Suppress specific deprecation warnings that don't affect functionality
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch.jit")
@@ -51,15 +52,14 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str, sft_checkpo
     if sft_checkpoint_dir and os.path.exists(sft_checkpoint_dir):
         print(f"[GRPO] Loading SFT LoRA weights from: {sft_checkpoint_dir}")
         try:
-            peft_model = PeftModel.from_pretrained(peft_model, sft_checkpoint_dir)
+            sft_weights_path = os.path.join(sft_checkpoint_dir, "adapter_model.safetensors")
+            state_dict = load_file(sft_weights_path)
+            
+            peft_model.load_state_dict(state_dict, strict=False)
             print(f"[GRPO] ✓ SFT LoRA weights loaded. Model now format-aligned.\n")
         except Exception as e:
             print(f"[GRPO] Warning: Could not load SFT weights: {e}")
             print(f"[GRPO] Proceeding with base LoRA initialization.\n")
-    else:
-        if sft_checkpoint_dir:
-            print(f"[GRPO] SFT checkpoint not found at: {sft_checkpoint_dir}")
-        print(f"[GRPO] Training GRPO from scratch (no SFT warm-start).\n")
     
     grpo_dataset = prepare_scienceqa_for_grpo(train_data, processor)
 
@@ -73,7 +73,8 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str, sft_checkpo
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
         num_generations=4,
-        max_completion_length=512,
+        max_prompt_length=4096,
+        max_completion_length=1024,
         fp16=True,
         remove_unused_columns=False,
         report_to="none",
@@ -107,7 +108,7 @@ if __name__ == "__main__":
     raw_scienceqa = load_dataset("derek-thomas/ScienceQA", split="validation")
     
     MODEL_DIR = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
-    SFT_CHECKPOINT_DIR = r"./sft_checkpoints"  # From SFT stage (optional)
+    SFT_CHECKPOINT_DIR = r"./sft_checkpoints"
     OUTPUT_DIR = r"./r3_quant_checkpoints"
     
     # Train GRPO with optional SFT warm-start
