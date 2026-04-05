@@ -97,7 +97,7 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         lr_scheduler_type="cosine",
         warmup_steps=50,
         logging_steps=10,
-        max_steps=1000,
+        max_steps=500,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,

@@ -33,7 +33,7 @@ def apply_lora_to_quantized_model(model_path):
     ]
 
     lora_config = LoraConfig(
-        r=16,
+        r=64,
         lora_alpha=32,
         target_modules=target_modules,
         exclude_modules=["visual"],
