@@ -73,7 +73,7 @@ def train_r3_quant_grpo(model_dir: str, train_data, output_dir: str, sft_checkpo
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
         num_generations=4,
-        max_prompt_length=4096,
+        # max_prompt_length=4096,
         max_completion_length=1024,
         fp16=True,
         remove_unused_columns=False,
