@@ -236,101 +236,58 @@ class MiniCOTDataset(torch.utils.data.Dataset):
             raw_dataset = raw_dataset["train"]
             self.raw_dataset = raw_dataset
         
-        # Check if dataset is streaming (has no len)
-        self.is_streaming = not hasattr(raw_dataset, '__len__')
+        # FIX (streaming): Eagerly materialize ALL data into self.items regardless
+        # of streaming mode. The broken lazy streaming __getitem__ re-iterated the
+        # stream from position 0 on every call, producing wrong/duplicate/None items.
+        # mini_cot_8k_verified is only ~8k rows (~8 MB) — trivial to hold in RAM.
+        self.items = []
+        count = 0
+        first_item_logged = False
         
-        if not self.is_streaming:
-            # For non-streaming datasets, pre-load and filter items
-            self.items = []
-            count = 0
-            first_item_logged = False
+        print(f"[INFO] MiniCOTDataset: materializing dataset into memory...")
+        for item in raw_dataset:
+            if max_samples and count >= max_samples:
+                break
             
-            for item in raw_dataset:
-                if max_samples and count >= max_samples:
-                    break
-                
-                # Debug: print first item's structure
-                if not first_item_logged:
-                    print(f"[DEBUG] First item keys: {item.keys() if isinstance(item, dict) else 'Not a dict'}")
-                    first_item_logged = True
-                
-                # FIX #2: Remove column guessing logic, directly access fixed columns
-                try:
-                    # Dataset structure is strictly fixed to these five columns
-                    solution = item.get("solution", "")
-                    
-                    # If no solution field found, skip
-                    if not solution or not str(solution).strip():
-                        continue
-                except Exception as e:
-                    print(f"[DEBUG] Error extracting solution: {e}")
+            # Debug: print first item's structure
+            if not first_item_logged:
+                print(f"[DEBUG] First item keys: {list(item.keys()) if isinstance(item, dict) else 'Not a dict'}")
+                first_item_logged = True
+            
+            # Directly access the fixed column names
+            try:
+                solution = item.get("solution", "")
+                # Skip items with no solution
+                if not solution or not str(solution).strip():
                     continue
-                
-                # Directly access the fixed column names
-                problem = item.get("problem", "")
-                answer = item.get("original_answer", "")
-                
-                # Get image if available, otherwise None (will create dummy during __getitem__)
-                image = item.get("image", None)
-                
-                self.items.append({
-                    'image': image,
-                    'problem': problem,
-                    'solution': solution,
-                    'original_answer': answer
-                })
-                count += 1
-        else:
-            # For streaming datasets, don't preload - handle lazily
-            self.items = None
-            print(f"[INFO] Using streaming dataset (lazy loading)")
-    
-    def __len__(self):
-        if self.is_streaming:
-            # For streaming datasets, estimate length or use a default
-            return 8000  # Approximate length for mini_cot_8k_verified
-        return len(self.items)
-    
-    def __getitem__(self, idx):
-        # For streaming datasets, we need to handle differently
-        if self.is_streaming:
-            # Skip to index (inefficient but necessary for streaming)
-            if idx == 0:
-                self._stream_iter = iter(self.raw_dataset)
+            except Exception as e:
+                print(f"[DEBUG] Error extracting solution: {e}")
+                continue
             
-            if not hasattr(self, '_stream_iter'):
-                self._stream_iter = iter(self.raw_dataset)
-                
-            # Get the item at this index by iterating
-            raw_item = None
-            for i, row in enumerate(self._stream_iter):
-                if i == idx:
-                    raw_item = row
-                    break
+            problem = item.get("problem", "")
+            answer = item.get("original_answer", "")
+            image = item.get("image", None)
             
-            if raw_item is None:
-                # Fallback: return dummy item
-                raw_item = {
-                    'image': None,
-                    'problem': "Question",
-                    'solution': "Answer",
-                    'original_answer': "A"
-                }
-            
-            # FIX #2: Remove column guessing logic, directly access fixed columns
-            solution = raw_item.get("solution", "")
-            problem = raw_item.get("problem", "")
-            answer = raw_item.get("original_answer", "")
-            
-            # Construct item dict with normalized field names
-            item = {
-                'image': raw_item.get("image", None) if isinstance(raw_item, dict) else raw_item.get("image", None),
+            self.items.append({
+                'image': image,
                 'problem': problem,
                 'solution': solution,
                 'original_answer': answer
-            }
-        else:
-            item = self.items[idx]
+            })
+            count += 1
+        
+        print(f"[INFO] MiniCOTDataset: loaded {len(self.items)} items into memory.")
+    
+    def __len__(self):
+        return len(self.items)
+    
+    def get_sample_items(self, n: int = 2):
+        """Return up to n items for use in logging callbacks."""
+        return self.items[:min(n, len(self.items))]
+    
+    def __getitem__(self, idx):
+        # All data is eagerly loaded into self.items — simple index lookup
+        item = self.items[idx]
         
         try:
             # Handle None/missing image by creating a placeholder
