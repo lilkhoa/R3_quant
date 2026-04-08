@@ -233,7 +233,7 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         gradient_checkpointing=True,
         max_grad_norm=1.0,
         fp16=True,
-        max_seq_length=2048,
+        max_length=2048,
         dataset_kwargs={"skip_prepare_dataset": True},
         remove_unused_columns=False,
         report_to="none",
