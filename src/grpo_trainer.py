@@ -204,25 +204,13 @@ def train_r3_quant_grpo(
     if sft_checkpoint_dir and os.path.exists(sft_checkpoint_dir):
         print(f"\n[GRPO] Warm-starting from SFT LoRA checkpoint: {sft_checkpoint_dir}")
         try:
-            from transformers import Qwen2VLForConditionalGeneration
-
-            base_model = Qwen2VLForConditionalGeneration.from_pretrained(
-                model_dir,
-                device_map="auto",
-                torch_dtype=torch.float16,
-            )
-            base_model.enable_input_require_grads()
-
-            peft_model = PeftModel.from_pretrained(
-                base_model,
-                sft_checkpoint_dir,
-                is_trainable=True,   
-            )
-
-            for name, param in peft_model.named_parameters():
-                if "visual" in name:
-                    param.requires_grad = False
-
+            peft_model = apply_lora_to_quantized_model(model_dir)
+            
+            from safetensors.torch import load_file
+            sft_weights_path = os.path.join(sft_checkpoint_dir, "adapter_model.safetensors")
+            state_dict = load_file(sft_weights_path)
+            peft_model.load_state_dict(state_dict, strict=False)
+            
             trainable = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)
             print(f"[GRPO] ✓ SFT LoRA weights loaded.  Trainable params: {trainable:,}")
             print(f"[GRPO] Model is now format-aligned before GRPO begins.\n")
