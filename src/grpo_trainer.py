@@ -298,7 +298,7 @@ def train_r3_quant_grpo(
 if __name__ == "__main__":
     raw_scienceqa = load_dataset("derek-thomas/ScienceQA", split="validation")
 
-    MODEL_DIR        = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
+    MODEL_DIR        = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
     SFT_CHECKPOINT   = r"./sft_checkpoints"
     OUTPUT_DIR       = r"./r3_quant_checkpoints"
 

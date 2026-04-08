@@ -193,9 +193,9 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
 
 if __name__ == "__main__":
     # Kaggle paths
-    BASE_PATH = "./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
-    GRPO_PATH = "./r3_quant_checkpoints"
-    QUANTIZED_PATH = "./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
+    BASE_MODEL = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
+    LORA_CHECKPOINT = r"./r3_quant_checkpoints"
+    QUANTIZED_PATH = "./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
     
     # Load dataset from Hugging Face
     NUM_SAMPLES = 500
@@ -207,7 +207,7 @@ if __name__ == "__main__":
 
     # Evaluate models
     print("="*70)
-    print("GRPO MODEL EVALUATION (Qwen2-VL-2B)")
+    print("GRPO MODEL EVALUATION (Qwen2-VL-7B)")
     print("="*70)
     
     print("\n[1] Evaluating Base Model (No LoRA)...")

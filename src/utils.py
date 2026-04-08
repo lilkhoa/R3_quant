@@ -178,7 +178,21 @@ class ScienceQASFTDataset(torch.utils.data.Dataset):
         # Build prompt
         text_prompt = build_scienceqa_prompt(item['question'], item['choices'])
         
+        # System message identical to GRPO
+        SYSTEM_MESSAGE = (
+            "You are a logical reasoning AI. "
+            "You MUST think step-by-step and enclose your entire reasoning "
+            "within <think> and </think> tags. "
+            "After thinking, output your final answer (one letter only) "
+            "enclosed within <answer> and </answer> tags."
+        )
+
         # Build messages
+        system_message = {
+            "role": "system",
+            "content": SYSTEM_MESSAGE
+        }
+
         user_message = {
             "role": "user",
             "content": [
@@ -202,7 +216,7 @@ class ScienceQASFTDataset(torch.utils.data.Dataset):
         }
         
         return {
-            "messages": [user_message, assistant_message],
+            "messages": [system_message, user_message, assistant_message],
             "images": [pil_image]
         }
 
@@ -303,6 +317,19 @@ class MiniCOTDataset(torch.utils.data.Dataset):
             if not user_text.strip():
                 user_text = "Please answer this question step by step, then provide your final answer."
 
+            SYSTEM_MESSAGE = (
+                "You are a logical reasoning AI. "
+                "You MUST think step-by-step and enclose your entire reasoning "
+                "within <think> and </think> tags. "
+                "After thinking, output your final answer (one letter only) "
+                "enclosed within <answer> and </answer> tags."
+            )
+            
+            system_message = {
+                "role": "system",
+                "content": SYSTEM_MESSAGE
+            }
+
             if has_real_image:
                 user_message = {
                     "role": "user",
@@ -353,18 +380,22 @@ class MiniCOTDataset(torch.utils.data.Dataset):
 
             if has_real_image:
                 return {
-                    "messages": [user_message, assistant_message],
+                    "messages": [system_message, user_message, assistant_message],
                     "images": [pil_image]
                 }
             else:
                 return {
-                    "messages": [user_message, assistant_message]
+                    "messages": [system_message, user_message, assistant_message]
                 }
 
         except Exception as e:
             print(f"Error processing item {idx}: {e}")
             return {
                 "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a logical reasoning AI. You MUST think step-by-step and enclose your entire reasoning within <think> and </think> tags. After thinking, output your final answer (one letter only) enclosed within <answer> and </answer> tags."
+                    },
                     {
                         "role": "user",
                         "content": [{"type": "text", "text": "Please answer this question step by step."}]

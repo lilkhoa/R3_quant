@@ -103,8 +103,8 @@ def evaluate_model(model_path, df, lora_path=None):
     return accuracy, predictions
 
 if __name__ == "__main__":
-    BASE_MODEL_PATH = r"./weights/Qwen2-VL-2B-Instruct"
-    QUANTIZED_MODEL_PATH = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
+    BASE_MODEL_PATH = r"./weights/Qwen2-VL-7B-Instruct"
+    QUANTIZED_MODEL_PATH = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
     SFT_MODEL_PATH = r"./sft_baseline_checkpoints" 
     
     DATA_PATH = r"./data/science_qa/validation-00000-of-00001-6c7328ff6c84284c.parquet"

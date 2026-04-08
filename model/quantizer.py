@@ -54,8 +54,8 @@ class QwenGPTQQuantizer:
             sys.exit(1) 
 
 if __name__ == "__main__":
-    BASE_MODEL = r"./weights/Qwen2-VL-2B-Instruct"
-    SAVE_DIR = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
+    BASE_MODEL = r"./weights/Qwen2-VL-7B-Instruct"
+    SAVE_DIR = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
     DATA_PATH = r"./data/science_qa/validation-00000-of-00001-6c7328ff6c84284c.parquet"
     
     quantizer = QwenGPTQQuantizer(BASE_MODEL, SAVE_DIR, DATA_PATH)

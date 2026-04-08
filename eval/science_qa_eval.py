@@ -100,7 +100,7 @@ class VLMQEvaluator:
         print("="*50)
 
 if __name__ == "__main__":
-    MODEL_PATH = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3"
+    MODEL_PATH = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
     DATA_PATH = r"./data/science_qa/test-00000-of-00001-f0e719df791966ff.parquet"
     
     evaluator = VLMQEvaluator(MODEL_PATH, DATA_PATH, num_samples=50)

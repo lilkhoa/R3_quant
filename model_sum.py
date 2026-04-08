@@ -50,6 +50,6 @@ def export_model_info(model_path, name, output_file):
     gc.collect()
 
 if __name__ == "__main__":
-    BASE_MODEL = r"./weights/Qwen2-VL-2B-Instruct"
+    BASE_MODEL = r"./weights/Qwen2-VL-7B-Instruct"
     
     export_model_info(BASE_MODEL, "BẢN GỐC (16-BIT)", "arch_base_16bit.txt")

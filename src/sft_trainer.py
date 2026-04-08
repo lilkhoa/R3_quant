@@ -262,7 +262,7 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
     print(f"[SFT] Format alignment complete. Ready for GRPO fine-tuning.\n")
 
 if __name__ == "__main__":
-    MODEL_DIR = r"./weights/Qwen2-VL-2B-Instruct-GPTQ-Int3" 
+    MODEL_DIR = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3" 
     OUTPUT_DIR = r"./sft_checkpoints"
     
     # Load mini_cot dataset in STREAMING mode (Kaggle-friendly, memory-efficient)
