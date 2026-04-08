@@ -290,93 +290,104 @@ class MiniCOTDataset(torch.utils.data.Dataset):
         item = self.items[idx]
         
         try:
-            # Handle None/missing image by creating a placeholder
-            # Many CoT datasets (like mini_cot_8k_verified) don't have images
-            if item.get("image") is None or (isinstance(item, dict) and item.get("image") is None):
-                # Create a white placeholder image with text overlay
-                pil_image = Image.new('RGB', (224, 224), color='white')
-            else:
-                # Convert image to PIL
+            # ----------------------------------------------------------------
+            # Every item in luodian/mini_cot_8k_verified has a real image.
+            # The crash ("Mismatch in image token count") is caused by
+            # Qwen2-VL's default max_pixels=1,003,520 generating ~2552 visual
+            # tokens per image. Combined with model_max_length=4096 the
+            # tokenizer truncates mid-image-token block → count mismatch.
+            # Fix: cap max_pixels on the processor (in sft_trainer.py) and
+            # thumbnail images here to 448px as defense-in-depth.
+            # ----------------------------------------------------------------
+            has_real_image = item.get("image") is not None
+
+            if has_real_image:
                 pil_image = _convert_image_to_pil(item['image'])
-            
-            if pil_image.mode != 'RGB':
-                pil_image = pil_image.convert('RGB')
-            
+                if pil_image.mode != 'RGB':
+                    pil_image = pil_image.convert('RGB')
+                # Pre-resize: caps resolution before processor dynamic scaling.
+                # Works alongside processor.image_processor.max_pixels set in
+                # sft_trainer.py to prevent the ~2552 visual token overflow.
+                pil_image.thumbnail((448, 448))
+
             # Build user message with problem/question
-            user_text = str(item.get('problem', item['problem'] if not isinstance(item, dict) else ""))
+            user_text = str(item.get('problem', ""))
             if not user_text.strip():
                 user_text = "Please answer this question step by step, then provide your final answer."
-            
-            user_message = {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": user_text}
-                ]
-            }
-            
+
+            if has_real_image:
+                user_message = {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": user_text}
+                    ]
+                }
+            else:
+                # Text-only: no image token → no visual tokens generated
+                user_message = {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text}
+                    ]
+                }
+
             # Process solution: wrap in <think> tags if not already wrapped
-            # FIX #3: Force-cast solution to string before regex to prevent TypeError from None values
             solution = item.get('solution', "")
             solution_text = str(solution) if solution is not None else ""
-            
+
             # Extract or wrap thinking
             think_match = re.search(r'<think>(.*?)</think>', solution_text, re.DOTALL)
             if think_match:
-                # Already has tags, extract the content
                 thinking_content = think_match.group(1).strip()
             else:
-                # No tags yet, use entire solution as reasoning
                 thinking_content = solution_text.strip()
-            
+
             # Extract answer letter (A-E, case insensitive)
             answer_match = re.search(r'<answer>\s*([A-Ea-e])\s*</answer>', solution_text, re.IGNORECASE)
             if answer_match:
                 answer_letter = answer_match.group(1).upper()
             else:
-                # Try to extract from original_answer or last digit in solution
-                answer_letter = _extract_answer_from_text(solution_text + " " + str(item.get('original_answer', item['original_answer'] if not isinstance(item, dict) else "")))
+                answer_letter = _extract_answer_from_text(
+                    solution_text + " " + str(item.get('original_answer', ""))
+                )
                 if not answer_letter:
-                    answer_letter = "A"  # Default fallback
-            
-            # Build properly formatted assistant response
+                    answer_letter = "A"
+
             assistant_text = (
                 f"<think>\n{thinking_content}\n</think>\n"
                 f"<answer>{answer_letter}</answer>"
             )
-            
             assistant_message = {
                 "role": "assistant",
-                "content": [
-                    {"type": "text", "text": assistant_text}
-                ]
+                "content": [{"type": "text", "text": assistant_text}]
             }
-            
-            return {
-                "messages": [user_message, assistant_message],
-                "images": [pil_image]
-            }
+
+            if has_real_image:
+                return {
+                    "messages": [user_message, assistant_message],
+                    "images": [pil_image]
+                }
+            else:
+                return {
+                    "messages": [user_message, assistant_message]
+                    # No "images" key — tells the collator this is text-only
+                }
+
         except Exception as e:
             print(f"Error processing item {idx}: {e}")
-            # Return dummy item
-            dummy_image = Image.new('RGB', (224, 224), color='white')
+            # Text-only fallback (no placeholder image)
             return {
                 "messages": [
                     {
                         "role": "user",
-                        "content": [
-                            {"type": "image"},
-                            {"type": "text", "text": "Please answer this question."}
-                        ]
+                        "content": [{"type": "text", "text": "Please answer this question step by step."}]
                     },
                     {
                         "role": "assistant",
-                        "content": [
-                            {"type": "text", "text": "<think>Unable to process item.</think>\n<answer>A</answer>"}
-                        ]
+                        "content": [{"type": "text", "text": "<think>Unable to process item.</think>\n<answer>A</answer>"}]
                     }
-                ],
-                "images": [dummy_image]
+                ]
             }
 
 def _extract_answer_from_text(text: str) -> str:
