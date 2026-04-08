@@ -205,14 +205,8 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
     processor = AutoProcessor.from_pretrained(model_dir)
     processor.tokenizer.model_max_length = 4096
 
-    # Cap image resolution so Qwen2-VL doesn't generate too many visual tokens.
-    # Qwen2-VL produces ~1 token per 28x28 pixels (after patch merging).
-    # Default max_pixels = 1,003,520 → up to ~1280 tokens per image,
-    # which alone can fill the 4096-token context, causing the tokenizer to
-    # truncate mid-image-token block → "Mismatch in image token count" crash.
-    # 28 * 28 * 256 = 200,704 → caps at ~256 tokens per image (safe for T4).
-    processor.image_processor.min_pixels = 28 * 28 * 4     # ~4 tokens minimum
-    processor.image_processor.max_pixels = 28 * 28 * 256   # ~256 tokens maximum
+    processor.image_processor.min_pixels = 28 * 28 * 4     
+    processor.image_processor.max_pixels = 28 * 28 * 256   
 
     peft_model = apply_lora_to_quantized_model(model_dir)
     
@@ -222,15 +216,6 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
     else:
         sft_dataset = prepare_scienceqa_for_sft(train_data)
 
-    # -------------------------------------------------------------------------
-    # SFTConfig — carefully tuned for Qwen2-VL GPTQ-Int3 on Kaggle T4x2
-    # Key fixes:
-    #   - lr=2e-5 (was 1e-4 — too high, caused cosine LR to collapse early)
-    #   - warmup_steps=100 (was 50 — too short for 3-bit GPTQ adapters)
-    #   - batch=1 + accum=8 (was 2+4 — stabler fp16 gradients per step)
-    #   - max_seq_length=2048 (missing — prevents silent <think> tag truncation)
-    #   - skip_prepare_dataset=True (missing — prevents TRL corrupting PIL dicts)
-    # -------------------------------------------------------------------------
     training_args = SFTConfig(
         output_dir=output_dir,
         learning_rate=2e-5,

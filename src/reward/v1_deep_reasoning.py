@@ -231,32 +231,61 @@ def logging_reward_func(completions, ground_truth, **kwargs) -> list[float]:
     """
     Logging-only reward: always returns 0.0 so it never affects reward variance.
 
-    FIX (Bug #5): The previous counter fired every 10 reward *calls*, but since
-    there are 5 reward functions and num_generations=4, there are ~20 calls per
-    training step, so 'step 10' in logs was actually training step ~0.5.
-    Now fires every 50 calls (~2-3 actual training steps) with corrected label.
+    Fires every 10 reward calls (≈ every 2 optimizer steps with 5 reward funcs
+    and num_generations=4 → 20 calls/step; log every 10 ≈ every ~0.5 step for
+    fine-grained monitoring).
+
+    Prints (without ANY truncation):
+      • The full prompt / question (extracted from the `prompts` kwarg)
+      • The full ground truth answer
+      • The full model completion text
     """
     global _log_counter
     _log_counter += 1
 
-    # Each training step fires reward funcs num_generations times = 4 calls per func.
-    # With 5 reward funcs total, each step = ~20 reward calls.
-    # Log every 50 calls ≈ every ~2-3 training steps.
-    if _log_counter % 50 == 0:
-        approx_step = _log_counter // 20
-        print("\n" + "🔥" * 35)
-        print(f"🔍 [LIVE CHECKPOINT ~step {approx_step}] LIVE MODEL OUTPUT")
-        print("🔥" * 35)
-        print(f"🎯 GROUND TRUTH ANSWER: {ground_truth[0]}")
-        print("-" * 70)
+    # How often to log.
+    # Each optimizer step ≈ num_generations calls per reward func.
+    # With 5 funcs and num_generations=4: 20 calls/step.
+    # Log every 10 calls → roughly every ~0.5 optimizer steps (very frequent,
+    # but cheap since it's just a print). Adjust if logs are too noisy.
+    LOG_EVERY_N_CALLS = 10
 
+    if _log_counter % LOG_EVERY_N_CALLS == 0:
+        approx_step = _log_counter // 20  # ~optimizer step
+        print("\n" + "🔥" * 36)
+        print(f"🔍 [REWARD LOGGER  |  ~step {approx_step}  |  call #{_log_counter}]")
+        print("🔥" * 36)
+
+        # ── Ground truth ────────────────────────────────────────────────
+        gt = ground_truth[0] if ground_truth else "N/A"
+        print(f"🎯 GROUND TRUTH: {gt}")
+
+        # ── Question / prompt (passed by GRPOTrainer as 'prompts' kwarg) ─
+        prompts = kwargs.get("prompts", None)
+        if prompts is not None:
+            prompt_repr = prompts[0]
+            if isinstance(prompt_repr, list):
+                # Conversational format: list of message dicts
+                # Extract the user turn text content
+                for msg in prompt_repr:
+                    if msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        if isinstance(content, list):
+                            # Multi-modal: find the text part
+                            for part in content:
+                                if isinstance(part, dict) and part.get("type") == "text":
+                                    print(f"\n📥 QUESTION:\n{part['text']}")
+                                    break
+                        else:
+                            print(f"\n📥 QUESTION:\n{content}")
+                        break
+            else:
+                print(f"\n📥 QUESTION:\n{prompt_repr}")
+
+        # ── Full model completion (NO truncation) ───────────────────────
+        print("\n🤖 FULL MODEL OUTPUT:")
         content = completions[0][0]["content"] if isinstance(completions[0], list) else completions[0]
-
-        if len(content) > 1500:
-            print(content[:1500] + "\n...[CONTENT TRUNCATED FOR LOG BREVITY]...")
-        else:
-            print(content)
-
-        print("🔥" * 35 + "\n")
+        print(content)  # never truncate — full output every time
+        print("🔥" * 36 + "\n")
 
     return [0.0] * len(completions)

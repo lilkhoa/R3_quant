@@ -290,24 +290,12 @@ class MiniCOTDataset(torch.utils.data.Dataset):
         item = self.items[idx]
         
         try:
-            # ----------------------------------------------------------------
-            # Every item in luodian/mini_cot_8k_verified has a real image.
-            # The crash ("Mismatch in image token count") is caused by
-            # Qwen2-VL's default max_pixels=1,003,520 generating ~2552 visual
-            # tokens per image. Combined with model_max_length=4096 the
-            # tokenizer truncates mid-image-token block → count mismatch.
-            # Fix: cap max_pixels on the processor (in sft_trainer.py) and
-            # thumbnail images here to 448px as defense-in-depth.
-            # ----------------------------------------------------------------
             has_real_image = item.get("image") is not None
 
             if has_real_image:
                 pil_image = _convert_image_to_pil(item['image'])
                 if pil_image.mode != 'RGB':
                     pil_image = pil_image.convert('RGB')
-                # Pre-resize: caps resolution before processor dynamic scaling.
-                # Works alongside processor.image_processor.max_pixels set in
-                # sft_trainer.py to prevent the ~2552 visual token overflow.
                 pil_image.thumbnail((448, 448))
 
             # Build user message with problem/question
@@ -371,12 +359,10 @@ class MiniCOTDataset(torch.utils.data.Dataset):
             else:
                 return {
                     "messages": [user_message, assistant_message]
-                    # No "images" key — tells the collator this is text-only
                 }
 
         except Exception as e:
             print(f"Error processing item {idx}: {e}")
-            # Text-only fallback (no placeholder image)
             return {
                 "messages": [
                     {
