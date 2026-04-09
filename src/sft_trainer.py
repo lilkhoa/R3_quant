@@ -148,7 +148,12 @@ class SFTOutputLoggingCallback(TrainerCallback):
                         return_tensors="pt",
                         padding=True,
                     )
-                    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+                    # --- Cast and Move ---
+                    for k, v in inputs.items():
+                        if torch.is_floating_point(v):
+                            inputs[k] = v.to(dtype=model.dtype, device=model.device)
+                        else:
+                            inputs[k] = v.to(device=model.device)
 
                     # --- Generate (greedy, short) ---
                     output_ids = model.generate(

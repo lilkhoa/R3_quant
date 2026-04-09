@@ -33,6 +33,11 @@ class QwenGPTQQuantizer:
         config.use_cache = False
 
         try:
+            if not hasattr(Qwen2VLForConditionalGeneration, "hf_device_map"):
+                def get_dm(self): return getattr(self, "_hf_device_map", {"": "cuda:0"})
+                def set_dm(self, value): self._hf_device_map = value
+                Qwen2VLForConditionalGeneration.hf_device_map = property(get_dm, set_dm)
+
             model = Qwen2VLForConditionalGeneration.from_pretrained(
                 self.base_model_path,
                 config=config,
@@ -42,7 +47,6 @@ class QwenGPTQQuantizer:
                 low_cpu_mem_usage=True
             )
 
-            model.to("cpu")
             os.makedirs(self.save_path, exist_ok=True)
             model.save_pretrained(self.save_path)
             

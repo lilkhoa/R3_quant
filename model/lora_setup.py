@@ -3,12 +3,11 @@ from transformers import Qwen2VLForConditionalGeneration
 from peft import LoraConfig, get_peft_model
 
 def apply_lora_to_quantized_model(model_path):
-    # NOTE: T4 GPUs (Kaggle) do NOT support bfloat16 (requires Ampere/A100+).
-    # Use float16 instead to avoid silent fallback to fp32 (which wastes VRAM).
+    # Enable bfloat16: L4 natively supports it and prevents precision crashes
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
         device_map="auto",
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
     )
 
     # Configure generation settings

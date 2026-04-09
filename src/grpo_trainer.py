@@ -126,7 +126,12 @@ class GRPOOutputLoggingCallback(TrainerCallback):
                         return_tensors="pt",
                         padding=True,
                     )
-                    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+                    # ── Cast and Move ───────────────────────────────────────────
+                    for k, v in inputs.items():
+                        if torch.is_floating_point(v):
+                            inputs[k] = v.to(dtype=model.dtype, device=model.device)
+                        else:
+                            inputs[k] = v.to(device=model.device)
 
                     output_ids = model.generate(
                         **inputs,
@@ -257,7 +262,8 @@ def train_r3_quant_grpo(
 
         # Memory / precision
         gradient_checkpointing=True,
-        fp16=True,                
+        fp16=False,                
+        bf16=True,                # Fully supported by L4 GPUs
 
         # Misc
         remove_unused_columns=False, 
