@@ -213,6 +213,9 @@ def train_r3_quant_grpo(
             from safetensors.torch import load_file
             sft_weights_path = os.path.join(sft_checkpoint_dir, "adapter_model.safetensors")
             state_dict = load_file(sft_weights_path)
+
+            state_dict = {k: (v.to(torch.float16) if v.dtype == torch.bfloat16 else v) for k, v in state_dict.items()}
+
             peft_model.load_state_dict(state_dict, strict=False)
             
             trainable = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)

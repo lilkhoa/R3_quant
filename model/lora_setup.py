@@ -3,15 +3,15 @@ from transformers import Qwen2VLForConditionalGeneration
 from peft import LoraConfig, get_peft_model
 
 def apply_lora_to_quantized_model(model_path):
-    # CẤU HÌNH DÀNH RIÊNG CHO T4x2 TRÊN KAGGLE:
-    # 1. T4 không hỗ trợ bfloat16 -> Phải dùng float16
-    # 2. T4 không hỗ trợ flash_attention_2 -> Bỏ tham số này đi để dùng SDPA mặc định
-    # 3. device_map="auto" sẽ tự động chia đều mô hình lên cả 2 GPU T4 (mỗi cái 16GB)
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
         device_map="auto",
         torch_dtype=torch.float16, 
     )
+
+    for name, param in model.named_parameters():
+        if param.dtype == torch.bfloat16:
+            param.data = param.data.to(torch.float16)
 
     # Configure generation settings
     model.generation_config.max_new_tokens = 512
