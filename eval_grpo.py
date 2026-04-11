@@ -15,31 +15,15 @@ from peft import PeftModel
 
 def build_scienceqa_prompt(question: str, choices: list) -> str:
     """Build the exact same prompt used during GRPO training."""
-    prompt = f"{question}\n\nChoices:\n"
-    labels = ["A", "B", "C", "D", "E"]
-    
-    if not choices:
-        prompt += (
-            "\nThink step by step and reason based on the image. "
-            "Enclose your reasoning process within <think> </think> tags "
-            "and provide your FINAL ANSWER within <answer> </answer> tags."
-        )
-        return prompt
+    prompt = f"Question: {question}\n"
 
-    for i, choice in enumerate(choices):
-        prompt += f"{labels[i]}. {choice}\n"
-        
-    valid_labels = labels[:len(choices)]
-    if len(valid_labels) > 1:
-        label_str = ", ".join(valid_labels[:-1]) + f" or {valid_labels[-1]}"
-    else:
-        label_str = valid_labels[0]
-        
-    prompt += (
-        "\nThink step by step and reason based on the image. "
-        "Enclose your reasoning process within <think> </think> tags "
-        f"and provide your FINAL ANSWER (strictly write 1 letter: {label_str}) within <answer> </answer> tags."
-    )
+    labels = ["A", "B", "C", "D", "E"]
+    if choices:
+        prompt += "Choices:\n"
+        for i, choice in enumerate(choices):
+            prompt += f"{labels[i]}. {choice}\n"
+
+    prompt += "\nStart your response directly with the <think> tag.\n"
     return prompt
 
 def extract_answer(text: str) -> str:
@@ -131,7 +115,13 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
             messages = [
                 {
                     "role": "system", 
-                    "content": "You are a logical reasoning AI. You MUST think step-by-step and strictly enclose your entire reasoning process within <think> and </think> tags. After thinking, you MUST output your final answer enclosed within <answer> and </answer> tags."
+                    "content": (
+                        "You are a logical reasoning AI. "
+                        "You MUST think step-by-step and enclose your entire reasoning "
+                        "within <think> and </think> tags. "
+                        "After thinking, output your final answer (one letter only) "
+                        "enclosed within <answer> and </answer> tags."
+                    )
                 },
                 {
                     "role": "user", 
@@ -148,7 +138,13 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
                 videos=video_inputs,
                 padding=True,
                 return_tensors="pt",
-            ).to("cuda")
+            )
+            
+            for k, v in inputs.items():
+                if torch.is_floating_point(v):
+                    inputs[k] = v.to(dtype=model.dtype, device="cuda")
+                else:
+                    inputs[k] = v.to(device="cuda")
 
             # Generate with GRPO-compatible settings
             generated_ids = model.generate(
@@ -192,30 +188,39 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
     return accuracy, predictions, thoughts, answers
 
 if __name__ == "__main__":
-    # Kaggle paths
-    BASE_MODEL = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
-    LORA_CHECKPOINT = r"./r3_quant_checkpoints"
-    QUANTIZED_PATH = "./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
+    # Paths
+    BASE_UNQUANTIZED_PATH = r"./weights/Qwen2-VL-7B-Instruct"
+    QUANTIZED_PATH = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
+    GRPO_PATH = r"./r3_quant_checkpoints/checkpoint-50/"
     
     # Load dataset from Hugging Face
-    NUM_SAMPLES = 500
+    NUM_SAMPLES = 200
+    PREVIOUS_SAMPLES = 100
 
     print("Loading dataset from Hugging Face...")
-    df = load_dataset("derek-thomas/ScienceQA", split="test").select(range(NUM_SAMPLES))
+    df = load_dataset("derek-thomas/ScienceQA", split="test")
+    
+    # Use 200 random questions completely separate from the first 100
+    df = df.shuffle(seed=42).select(range(PREVIOUS_SAMPLES, PREVIOUS_SAMPLES + NUM_SAMPLES))
     
     print(f"Dataset loaded: {len(df)} samples\n")
 
     # Evaluate models
     print("="*70)
-    print("GRPO MODEL EVALUATION (Qwen2-VL-7B)")
+    print("MODEL EVALUATION (Qwen2-VL-7B)")
     print("="*70)
     
-    print("\n[1] Evaluating Base Model (No LoRA)...")
-    base_acc, base_preds, base_thoughts, base_answers = evaluate_model(
+    print("\n[1] Evaluating Base Model (Unquantized)...")
+    base_unquantized_acc, base_unquantized_preds, base_unquantized_thoughts, base_unquantized_answers = evaluate_model(
+        BASE_UNQUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
+    )
+    
+    print("\n[2] Evaluating Quantized Model (3-bit, No LoRA)...")
+    quantized_acc, quantized_preds, quantized_thoughts, quantized_answers = evaluate_model(
         QUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
     )
     
-    print("\n[2] Evaluating GRPO-Finetuned Model (with LoRA)...")
+    print("\n[3] Evaluating Quantized + SFT + GRPO Model (with LoRA)...")
     grpo_acc, grpo_preds, grpo_thoughts, grpo_answers = evaluate_model(
         QUANTIZED_PATH, df, lora_path=GRPO_PATH, num_samples=NUM_SAMPLES
     )
@@ -224,9 +229,10 @@ if __name__ == "__main__":
     print("\n" + "="*70)
     print("RESULTS SUMMARY")
     print("="*70)
-    print(f"Base Model (Quantized 3-bit):        {base_acc:.2f}%")
-    print(f"GRPO Model (3-bit + LoRA):          {grpo_acc:.2f}%")
-    print(f"Improvement:                         {grpo_acc - base_acc:+.2f}%")
+    print(f"1. Base Model (Unquantized):           {base_unquantized_acc:.2f}%")
+    print(f"2. Quantized Model (3-bit, base):      {quantized_acc:.2f}%")
+    print(f"3. GRPO Model (3-bit + SFT + GRPO):    {grpo_acc:.2f}%")
+    print(f"Improvement (GRPO vs Quantized):       {grpo_acc - quantized_acc:+.2f}%")
     print("="*70)
 
     # Print sample outputs with full reasoning (no truncation)
@@ -247,22 +253,26 @@ if __name__ == "__main__":
         print(f"✓ Ground Truth: {target}")
         
         print(f"\n{'-'*70}")
-        print(f"BASE MODEL RESPONSE (No LoRA):")
+        print(f"BASE UNQUANTIZED MODEL RESPONSE:")
         print(f"{'-'*70}")
-        print(f"Predicted Answer: {base_answers[i] if base_answers[i] else '[Could not extract]'}")
-        print(f"Correctness: {'✓ CORRECT' if base_answers[i] == target else '✗ INCORRECT'}")
-        print(f"\n[FULL REASONING]:")
-        print(base_thoughts[i] if base_thoughts[i] else "[No reasoning found]")
+        print(f"Predicted Answer: {base_unquantized_answers[i] if base_unquantized_answers[i] else '[Could not extract]'}")
+        print(f"Correctness: {'✓ CORRECT' if base_unquantized_answers[i] == target else '✗ INCORRECT'}")
         print(f"\n[FULL RESPONSE TEXT]:")
-        print(base_preds[i])
+        print(base_unquantized_preds[i])
+
+        print(f"\n{'-'*70}")
+        print(f"QUANTIZED MODEL RESPONSE (No LoRA):")
+        print(f"{'-'*70}")
+        print(f"Predicted Answer: {quantized_answers[i] if quantized_answers[i] else '[Could not extract]'}")
+        print(f"Correctness: {'✓ CORRECT' if quantized_answers[i] == target else '✗ INCORRECT'}")
+        print(f"\n[FULL RESPONSE TEXT]:")
+        print(quantized_preds[i])
         
         print(f"\n{'-'*70}")
-        print(f"GRPO MODEL RESPONSE (with LoRA):")
+        print(f"QUANTIZED + SFT + GRPO MODEL RESPONSE:")
         print(f"{'-'*70}")
         print(f"Predicted Answer: {grpo_answers[i] if grpo_answers[i] else '[Could not extract]'}")
         print(f"Correctness: {'✓ CORRECT' if grpo_answers[i] == target else '✗ INCORRECT'}")
-        print(f"\n[FULL REASONING]:")
-        print(grpo_thoughts[i] if grpo_thoughts[i] else "[No reasoning found]")
         print(f"\n[FULL RESPONSE TEXT]:")
         print(grpo_preds[i])
     

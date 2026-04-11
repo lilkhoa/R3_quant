@@ -22,11 +22,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch.jit
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from model.lora_setup import apply_lora_to_quantized_model
-from src.reward.v1_deep_reasoning import (
+from src.reward.v2_vision_focus import (
     format_reward_func,
     accuracy_reward_func,
-    reasoning_length_reward_func,
-    logic_structure_reward_func,
+    vision_reward_func,
     logging_reward_func,
 )
 from src.utils import prepare_scienceqa_for_grpo, build_scienceqa_prompt, _convert_image_to_pil
@@ -243,14 +242,14 @@ def train_r3_quant_grpo(
         max_grad_norm=1.0,
 
         # Steps / checkpointing
-        max_steps=500,
+        max_steps=200,
         logging_steps=1,
         save_strategy="steps",
-        save_steps=100,
+        save_steps=50,
 
-        # Batch / accumulation  (T4×2 tuned)
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
+        dataloader_num_workers=2,
 
         # GRPO-specific
         num_generations=4,         
@@ -260,10 +259,12 @@ def train_r3_quant_grpo(
         temperature=1.0,          
         top_p=1.0,
 
-        # Memory / precision
+        # Memory / precision 
         gradient_checkpointing=True,
-        fp16=False,                
-        bf16=True,                # Fully supported by L4 GPUs
+        
+        fp16=True,
+        bf16=False,
+        # ----------------------------------------
 
         # Misc
         remove_unused_columns=False, 
@@ -273,8 +274,7 @@ def train_r3_quant_grpo(
     reward_funcs = [
         format_reward_func,             
         accuracy_reward_func,           
-        reasoning_length_reward_func,   
-        logic_structure_reward_func,    
+        vision_reward_func,             
         logging_reward_func,            
     ]
 

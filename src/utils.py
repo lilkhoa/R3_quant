@@ -114,7 +114,7 @@ def build_scienceqa_prompt(question: str, choices: list) -> str:
         for i, choice in enumerate(choices):
             prompt += f"{labels[i]}. {choice}\n"
 
-    prompt += "\nResponse:\n"
+    prompt += "\nStart your response directly with the <think> tag.\n"
     return prompt
 
 
