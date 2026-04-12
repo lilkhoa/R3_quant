@@ -305,7 +305,8 @@ def train_r3_quant_grpo(
 
 
 if __name__ == "__main__":
-    raw_scienceqa = load_dataset("derek-thomas/ScienceQA", split="validation")
+    LOCAL_DATA_PATH = r"./data/science_qa/validation-00000-of-00001-6c7328ff6c84284c.parquet"
+    raw_scienceqa = load_dataset("parquet", data_files=LOCAL_DATA_PATH, split="train")
 
     MODEL_DIR        = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
     SFT_CHECKPOINT   = r"./sft_checkpoints"
