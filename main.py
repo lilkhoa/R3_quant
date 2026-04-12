@@ -77,5 +77,5 @@ if __name__ == "__main__":
     setup_environment()
     download_data()
     # download_sft_data()
-    download_model()
-    run_quantizer()
+    # download_model()
+    # run_quantizer()
