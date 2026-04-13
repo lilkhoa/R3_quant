@@ -211,10 +211,10 @@ if __name__ == "__main__":
     print("MODEL EVALUATION (Qwen2-VL-7B)")
     print("="*70)
     
-    print("\n[1] Evaluating Base Model (Unquantized)...")
-    base_unquantized_acc, base_unquantized_preds, base_unquantized_thoughts, base_unquantized_answers = evaluate_model(
-        BASE_UNQUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
-    )
+    # print("\n[1] Evaluating Base Model (Unquantized)...")
+    # base_unquantized_acc, base_unquantized_preds, base_unquantized_thoughts, base_unquantized_answers = evaluate_model(
+    #     BASE_UNQUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
+    # )
     
     print("\n[2] Evaluating Quantized Model (3-bit, No LoRA)...")
     quantized_acc, quantized_preds, quantized_thoughts, quantized_answers = evaluate_model(
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     print("\n" + "="*70)
     print("RESULTS SUMMARY")
     print("="*70)
-    print(f"1. Base Model (Unquantized):           {base_unquantized_acc:.2f}%")
+    # print(f"1. Base Model (Unquantized):           {base_unquantized_acc:.2f}%")
     print(f"2. Quantized Model (3-bit, base):      {quantized_acc:.2f}%")
     print(f"3. GRPO Model (3-bit + SFT + GRPO):    {grpo_acc:.2f}%")
     print(f"Improvement (GRPO vs Quantized):       {grpo_acc - quantized_acc:+.2f}%")
@@ -253,13 +253,13 @@ if __name__ == "__main__":
         print(f"Choices: {row['choices']}")
         print(f"✓ Ground Truth: {target}")
         
-        print(f"\n{'-'*70}")
-        print(f"BASE UNQUANTIZED MODEL RESPONSE:")
-        print(f"{'-'*70}")
-        print(f"Predicted Answer: {base_unquantized_answers[i] if base_unquantized_answers[i] else '[Could not extract]'}")
-        print(f"Correctness: {'✓ CORRECT' if base_unquantized_answers[i] == target else '✗ INCORRECT'}")
-        print(f"\n[FULL RESPONSE TEXT]:")
-        print(base_unquantized_preds[i])
+        # print(f"\n{'-'*70}")
+        # print(f"BASE UNQUANTIZED MODEL RESPONSE:")
+        # print(f"{'-'*70}")
+        # print(f"Predicted Answer: {base_unquantized_answers[i] if base_unquantized_answers[i] else '[Could not extract]'}")
+        # print(f"Correctness: {'✓ CORRECT' if base_unquantized_answers[i] == target else '✗ INCORRECT'}")
+        # print(f"\n[FULL RESPONSE TEXT]:")
+        # print(base_unquantized_preds[i])
 
         print(f"\n{'-'*70}")
         print(f"QUANTIZED MODEL RESPONSE (No LoRA):")
