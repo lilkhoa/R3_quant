@@ -80,6 +80,10 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
     if lora_path:
         print(f"  ✓ Loading LoRA from: {lora_path}")
         model = PeftModel.from_pretrained(model, lora_path)
+
+    for name, param in model.named_parameters():
+        if param.dtype == torch.bfloat16:
+            param.data = param.data.to(torch.float16)
         
     processor_path = lora_path if lora_path else model_path
     processor = AutoProcessor.from_pretrained(processor_path)
