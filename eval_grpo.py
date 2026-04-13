@@ -74,7 +74,7 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch.float16,
     )
     
     if lora_path:
@@ -142,9 +142,9 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
             
             for k, v in inputs.items():
                 if torch.is_floating_point(v):
-                    inputs[k] = v.to(dtype=model.dtype, device="cuda")
+                    inputs[k] = v.to(dtype=model.dtype, device=model.device)
                 else:
-                    inputs[k] = v.to(device="cuda")
+                    inputs[k] = v.to(device=model.device)
 
             # Generate with GRPO-compatible settings
             generated_ids = model.generate(
@@ -191,16 +191,17 @@ if __name__ == "__main__":
     # Paths
     BASE_UNQUANTIZED_PATH = r"./weights/Qwen2-VL-7B-Instruct"
     QUANTIZED_PATH = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
-    GRPO_PATH = r"./r3_quant_checkpoints/checkpoint-50/"
+    GRPO_PATH = r"./r3_quant_checkpoints/"
     
     # Load dataset from Hugging Face
     NUM_SAMPLES = 200
-    PREVIOUS_SAMPLES = 100
+    PREVIOUS_SAMPLES = 0
+    LOCAL_DATA_PATH = r"./data/science_qa/test-00000-of-00001-f0e719df791966ff.parquet"
 
-    print("Loading dataset from Hugging Face...")
-    df = load_dataset("derek-thomas/ScienceQA", split="test")
+    print("Loading dataset...")
+    df = load_dataset("parquet", data_files=LOCAL_DATA_PATH, split="train")
     
-    # Use 200 random questions completely separate from the first 100
+    # Use 200 random questions
     df = df.shuffle(seed=42).select(range(PREVIOUS_SAMPLES, PREVIOUS_SAMPLES + NUM_SAMPLES))
     
     print(f"Dataset loaded: {len(df)} samples\n")
