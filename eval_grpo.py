@@ -61,7 +61,7 @@ def extract_thinking(text: str) -> str:
         
     return ""
 
-def evaluate_model(model_path, df, lora_path=None, num_samples=None):
+def evaluate_model(model_path, df, lora_path=None, num_samples=None, blind_image=False):
     """
     Evaluate model on ScienceQA dataset with GRPO prompt format.
     
@@ -110,7 +110,7 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None):
             content = [{"type": "text", "text": text_content}]
             
             # Handle image
-            if 'image' in row and row['image'] is not None:
+            if not blind_image and 'image' in row and row['image'] is not None:
                 img_data = row['image']
                 if isinstance(img_data, dict) and 'bytes' in img_data:
                     img_data = Image.open(io.BytesIO(img_data['bytes']))
@@ -198,8 +198,8 @@ if __name__ == "__main__":
     GRPO_PATH = r"./r3_quant_checkpoints/"
     
     # Load dataset from Hugging Face
-    NUM_SAMPLES = 100
-    PREVIOUS_SAMPLES = 200
+    NUM_SAMPLES = 300
+    PREVIOUS_SAMPLES = 0
     LOCAL_DATA_PATH = r"./data/science_qa/test-00000-of-00001-f0e719df791966ff.parquet"
 
     print("Loading dataset...")
@@ -217,17 +217,17 @@ if __name__ == "__main__":
     
     # print("\n[1] Evaluating Base Model (Unquantized)...")
     # base_unquantized_acc, base_unquantized_preds, base_unquantized_thoughts, base_unquantized_answers = evaluate_model(
-    #     BASE_UNQUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
+    #     BASE_UNQUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES, blind_image=False
     # )
     
     print("\n[2] Evaluating Quantized Model (3-bit, No LoRA)...")
     quantized_acc, quantized_preds, quantized_thoughts, quantized_answers = evaluate_model(
-        QUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
+        QUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES, blind_image=True
     )
     
     print("\n[3] Evaluating Quantized + SFT + GRPO Model (with LoRA)...")
     grpo_acc, grpo_preds, grpo_thoughts, grpo_answers = evaluate_model(
-        QUANTIZED_PATH, df, lora_path=GRPO_PATH, num_samples=NUM_SAMPLES
+        QUANTIZED_PATH, df, lora_path=GRPO_PATH, num_samples=NUM_SAMPLES, blind_image=True
     )
 
     # Print results
