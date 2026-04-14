@@ -198,8 +198,8 @@ if __name__ == "__main__":
     GRPO_PATH = r"./r3_quant_checkpoints/"
     
     # Load dataset from Hugging Face
-    NUM_SAMPLES = 200
-    PREVIOUS_SAMPLES = 0
+    NUM_SAMPLES = 100
+    PREVIOUS_SAMPLES = 200
     LOCAL_DATA_PATH = r"./data/science_qa/test-00000-of-00001-f0e719df791966ff.parquet"
 
     print("Loading dataset...")
