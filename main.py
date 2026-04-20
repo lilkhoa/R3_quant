@@ -5,7 +5,7 @@ from datasets import load_dataset
 
 def setup_environment():
     print("--- 1. Khởi tạo cấu trúc thư mục ---")
-    directories = ["data/science_qa", "data/mini_cot", "weights"]
+    directories = ["data/science_qa", "data/mini_cot", "data/chart_qa", "weights"]
     for folder in directories:
         if not os.path.exists(folder):
             os.makedirs(folder)
