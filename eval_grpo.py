@@ -415,14 +415,13 @@ if __name__ == "__main__":
     
     for i in range(min(3, len(df))):
         row = df[i]
-        target_idx = int(row['answer'])
-        target = chr(ord('A') + target_idx)
-        
+        target = str(row['answer']).strip().lower()
+
         print(f"\n{'='*70}")
         print(f"SAMPLE {i+1}")
         print(f"{'='*70}")
         print(f"Question: {row['question']}")
-        print(f"Choices: {row['choices']}")
+        print(f"Category: {row.get('category', 'N/A')}")
         print(f"✓ Ground Truth: {target}")
         
         # print(f"\n{'-'*70}")
