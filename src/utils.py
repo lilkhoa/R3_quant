@@ -449,3 +449,107 @@ def prepare_minicot_for_sft(raw_dataset, max_samples=None):
     else:
         print(f"[SFT] Loaded {len(dataset)} CoT examples for format alignment training.")
     return dataset
+
+
+# ============================================================================
+# POPE Evaluation Helpers
+# ============================================================================
+
+def build_pope_prompt(question: str) -> str:
+    """
+    Build a POPE-specific prompt for binary Yes/No object-presence questions.
+    POPE questions are always of the form "Is there a X in the image?"
+    The model is instructed to reason then output exactly 'yes' or 'no'.
+    """
+    return (
+        f"{question}\n\n"
+        "Answer with 'yes' or 'no' only.\n"
+        "Start your response directly with the <think> tag.\n"
+    )
+
+
+def extract_pope_answer(text: str) -> str:
+    """
+    Extract a binary 'yes' or 'no' answer from model output.
+
+    Priority order:
+    1. Content inside <answer>...</answer> tags.
+    2. First occurrence of a standalone 'yes' or 'no' in the text.
+    3. Empty string when nothing is found.
+
+    The returned value is always lowercase 'yes', 'no', or ''.
+    """
+    # Priority 1: <answer> tags
+    match = re.search(r'<answer>\s*(yes|no)\s*</answer>', text, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+
+    # Priority 2: last <answer> tag content (in case model writes extra text)
+    match = re.search(r'<answer>(.*?)</answer>', text, re.IGNORECASE | re.DOTALL)
+    if match:
+        content = match.group(1).strip().lower()
+        if 'yes' in content:
+            return 'yes'
+        if 'no' in content:
+            return 'no'
+
+    # Priority 3: standalone word after </think>
+    after_think = re.split(r'</think>', text, maxsplit=1, flags=re.IGNORECASE)
+    search_zone = after_think[-1]  # entire text if no </think> found
+    match = re.search(r'\b(yes|no)\b', search_zone, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+
+    return ''
+
+
+def compute_pope_metrics(pred_answers: list, ground_truths: list) -> dict:
+    """
+    Compute the standard POPE evaluation metrics (Li et al., EMNLP 2023).
+
+    Metrics returned:
+        accuracy   - % of predictions matching the ground truth
+        precision  - TP / (TP + FP)  for the positive class ('yes')
+        recall     - TP / (TP + FN)  for the positive class ('yes')
+        f1         - harmonic mean of precision and recall
+        yes_ratio  - % of model predictions that are 'yes'
+
+    All values are expressed as percentages (0-100).
+    """
+    assert len(pred_answers) == len(ground_truths), "Length mismatch"
+
+    tp = fp = tn = fn = 0
+    for pred, gt in zip(pred_answers, ground_truths):
+        p = pred.strip().lower()
+        g = gt.strip().lower()
+        if p == 'yes' and g == 'yes':
+            tp += 1
+        elif p == 'yes' and g == 'no':
+            fp += 1
+        elif p == 'no' and g == 'no':
+            tn += 1
+        elif p == 'no' and g == 'yes':
+            fn += 1
+        # answers that are neither 'yes' nor 'no' are treated as wrong
+        elif g == 'yes':
+            fn += 1
+        else:
+            fp += 1
+
+    total     = len(pred_answers)
+    correct   = tp + tn
+    yes_count = tp + fp
+
+    accuracy  = (correct   / total)               * 100 if total     > 0 else 0.0
+    precision = (tp        / (tp + fp))           * 100 if (tp + fp) > 0 else 0.0
+    recall    = (tp        / (tp + fn))           * 100 if (tp + fn) > 0 else 0.0
+    f1        = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    yes_ratio = (yes_count / total)               * 100 if total     > 0 else 0.0
+
+    return {
+        'accuracy':  accuracy,
+        'precision': precision,
+        'recall':    recall,
+        'f1':        f1,
+        'yes_ratio': yes_ratio,
+    }

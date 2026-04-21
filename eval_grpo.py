@@ -13,6 +13,9 @@ import pandas as pd
 from tqdm import tqdm
 from peft import PeftModel
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+from src.utils import build_pope_prompt, extract_pope_answer, compute_pope_metrics
+
 def build_scienceqa_prompt(question: str, choices: list) -> str:
     """Build the exact same prompt used during GRPO training."""
     prompt = f"Question: {question}\n"
@@ -191,69 +194,26 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None, blind_image
     
     return accuracy, predictions, thoughts, answers
 
-def build_chartqa_prompt(question: str) -> str:
-    """Build the prompt for ChartQA (open-ended, no choices)."""
-    return (
-        f"Question: {question}\n\n"
-        "Analyze the chart carefully and provide your answer.\n"
-        "Start your response directly with the <think> tag.\n"
-    )
-
-def extract_chartqa_answer(text: str) -> str:
+def evaluate_model_for_pope(model_path, df, lora_path=None, num_samples=None):
     """
-    Extract the free-form answer from ChartQA model output.
-    Primary: <answer>...</answer> tags.
-    Fallback: last non-empty line of the output.
-    """
-    match = re.search(r'<answer>(.*?)</answer>', text, re.IGNORECASE | re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    Evaluate model on the POPE benchmark (Li et al., EMNLP 2023).
 
-    # Fallback: take the last non-empty line (common for models that skip tags)
-    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
-    if lines:
-        return lines[-1]
-    return ""
+    POPE dataset columns (lmms-lab/POPE):
+        question_id  - unique id
+        image        - chart/scene image
+        question     - "Is there a X in the image?"
+        answer       - ground-truth "yes" or "no"
+        category     - "adversarial" | "popular" | "random"
 
-def _relaxed_correct(predicted: str, ground_truth: str, tolerance: float = 0.05) -> bool:
-    """
-    ChartQA relaxed accuracy metric (Masry et al., 2022):
-      - Numeric answers: correct if |pred - gt| / max(|gt|, 1e-8) <= tolerance (5%)
-      - Text answers: correct if strings match after lowercasing and stripping
-        punctuation / whitespace.
-    """
-    pred = predicted.strip().rstrip("%").strip()
-    gt   = ground_truth.strip().rstrip("%").strip()
-
-    # Try numeric comparison first
-    try:
-        pred_num = float(pred.replace(",", ""))
-        gt_num   = float(gt.replace(",", ""))
-        return abs(pred_num - gt_num) / max(abs(gt_num), 1e-8) <= tolerance
-    except ValueError:
-        pass
-
-    # Fall back to case-insensitive text match
-    def _normalize(s: str) -> str:
-        return re.sub(r'[^\w\s]', '', s).lower().strip()
-
-    return _normalize(pred) == _normalize(gt)
-
-def evaluate_model_for_chart_qa(model_path, df, lora_path=None, num_samples=None):
-    """
-    Evaluate model on ChartQA dataset with GRPO prompt format.
-
-    ChartQA columns: type, question, answer (free-form), image.
-    Scoring uses relaxed accuracy (Masry et al., 2022):
-      - Numeric answers: within 5% tolerance.
-      - Text answers: case-insensitive exact match after stripping punctuation.
-    Accuracy is also broken down by question type ("human" vs "augmented").
+    Metrics (from src.utils.compute_pope_metrics):
+        accuracy, precision, recall, F1, yes_ratio
+    Results are reported both per-category and overall.
 
     Returns:
-        - accuracy:     Overall relaxed accuracy (%)
-        - predictions:  List of full model output strings
-        - thoughts:     List of extracted <think> reasoning strings
-        - answers:      List of extracted predicted answers
+        - accuracy:    Overall accuracy (%)
+        - predictions: List of full raw model output strings
+        - thoughts:    List of extracted <think> reasoning strings
+        - answers:     List of extracted 'yes'/'no' predicted answers
     """
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
@@ -274,44 +234,39 @@ def evaluate_model_for_chart_qa(model_path, df, lora_path=None, num_samples=None
 
     model.eval()
 
-    correct = 0
     predictions = []
-    thoughts = []
-    answers = []
-
-    # Per-type tracking for ablation reporting
-    type_correct = {}
-    type_total   = {}
+    thoughts    = []
+    answers     = []
+    ground_truths = []
+    categories  = []
 
     eval_df = df if num_samples is None else df.select(range(num_samples))
 
     with torch.no_grad():
-        for row in tqdm(eval_df, total=len(eval_df), desc=f"Evaluating ChartQA {os.path.basename(model_path)}"):
+        for row in tqdm(eval_df, total=len(eval_df), desc=f"Evaluating POPE {os.path.basename(model_path)}"):
             question     = str(row.get("question", ""))
-            ground_truth = str(row.get("answer", ""))
-            q_type       = str(row.get("type", "unknown"))
+            ground_truth = str(row.get("answer", "")).strip().lower()
+            category     = str(row.get("category", "unknown"))
 
-            text_content = build_chartqa_prompt(question)
+            text_content = build_pope_prompt(question)
 
+            # POPE always requires the image (hallucination probe)
             content = []
-
-            # Always include the chart image (ChartQA is inherently visual)
             img_data = row.get("image", None)
             if img_data is not None:
                 if isinstance(img_data, dict) and "bytes" in img_data:
                     img_data = Image.open(io.BytesIO(img_data["bytes"]))
                 content.append({"type": "image", "image": img_data})
-
             content.append({"type": "text", "text": text_content})
 
             messages = [
                 {
                     "role": "system",
                     "content": (
-                        "You are a logical reasoning AI specialized in chart analysis. "
+                        "You are a logical reasoning AI. "
                         "You MUST think step-by-step and enclose your entire reasoning "
                         "within <think> and </think> tags. "
-                        "After thinking, output your final answer (a number or short text) "
+                        "After thinking, output your final answer (yes or no) "
                         "enclosed within <answer> and </answer> tags."
                     ),
                 },
@@ -340,7 +295,7 @@ def evaluate_model_for_chart_qa(model_path, df, lora_path=None, num_samples=None
 
             generated_ids = model.generate(
                 **inputs,
-                max_new_tokens=1024,
+                max_new_tokens=512,
                 do_sample=False,
                 num_beams=1,
             )
@@ -354,29 +309,48 @@ def evaluate_model_for_chart_qa(model_path, df, lora_path=None, num_samples=None
                 clean_up_tokenization_spaces=False,
             )[0]
 
-            thinking        = extract_thinking(output_text)
-            predicted_answer = extract_chartqa_answer(output_text)
-
-            is_correct = _relaxed_correct(predicted_answer, ground_truth)
-            if is_correct:
-                correct += 1
-
-            # Track per-type accuracy
-            type_total[q_type]   = type_total.get(q_type, 0) + 1
-            type_correct[q_type] = type_correct.get(q_type, 0) + (1 if is_correct else 0)
+            thinking         = extract_thinking(output_text)
+            predicted_answer = extract_pope_answer(output_text)
 
             predictions.append(output_text)
             thoughts.append(thinking)
             answers.append(predicted_answer)
+            ground_truths.append(ground_truth)
+            categories.append(category)
 
-    total = len(eval_df)
-    accuracy = (correct / total) * 100 if total > 0 else 0.0
+    # ── Overall metrics ────────────────────────────────────────────────────
+    overall = compute_pope_metrics(answers, ground_truths)
+    accuracy = overall['accuracy']
 
-    # Print per-type breakdown
-    print(f"\n  [ChartQA] Overall relaxed accuracy: {accuracy:.2f}% ({correct}/{total})")
-    for q_type, cnt in type_total.items():
-        type_acc = (type_correct.get(q_type, 0) / cnt) * 100 if cnt > 0 else 0.0
-        print(f"    • {q_type:12s}: {type_acc:.2f}%  ({type_correct.get(q_type, 0)}/{cnt})")
+    print(f"\n  [POPE] Overall results ({len(eval_df)} samples):")
+    print(f"    Accuracy : {overall['accuracy']:.2f}%")
+    print(f"    Precision: {overall['precision']:.2f}%")
+    print(f"    Recall   : {overall['recall']:.2f}%")
+    print(f"    F1 Score : {overall['f1']:.2f}%")
+    print(f"    Yes Ratio: {overall['yes_ratio']:.2f}%")
+
+    # ── Per-category breakdown ──────────────────────────────────────────────
+    unique_cats = sorted(set(categories))
+    if len(unique_cats) > 1:
+        print(f"\n  [POPE] Per-category breakdown:")
+        for cat in unique_cats:
+            idx = [i for i, c in enumerate(categories) if c == cat]
+            cat_preds = [answers[i]       for i in idx]
+            cat_gts   = [ground_truths[i] for i in idx]
+            m = compute_pope_metrics(cat_preds, cat_gts)
+            print(f"    {cat:12s} | Acc {m['accuracy']:.2f}%  Prec {m['precision']:.2f}%  "
+                  f"Rec {m['recall']:.2f}%  F1 {m['f1']:.2f}%  Yes {m['yes_ratio']:.2f}%")
+
+    # ── Sample log (first 3 items) ──────────────────────────────────────────
+    print(f"\n  [POPE] Sample predictions:")
+    for i in range(min(3, len(predictions))):
+        correct_mark = "✓" if answers[i] == ground_truths[i] else "✗"
+        print(f"    [{correct_mark}] Sample {i+1} | category={categories[i]}")
+        print(f"         Question  : {eval_df[i].get('question', '')}")
+        print(f"         Ground Truth: {ground_truths[i]}")
+        print(f"         Predicted   : {answers[i] if answers[i] else '[not extracted]'}")
+        print(f"         Full output : {predictions[i][:300]}{'...' if len(predictions[i]) > 300 else ''}")
+        print()
 
     del model
     del processor
@@ -394,7 +368,7 @@ if __name__ == "__main__":
     # Load dataset from Hugging Face
     NUM_SAMPLES = 300
     PREVIOUS_SAMPLES = 0
-    LOCAL_DATA_PATH = r"./data/chart_qa/test-00000-of-00001.parquet"
+    LOCAL_DATA_PATH = r"./data/pope/test-00000-of-00003.parquet"
 
     print("Loading dataset...")
     df = load_dataset("parquet", data_files=LOCAL_DATA_PATH, split="train")
@@ -415,12 +389,12 @@ if __name__ == "__main__":
     # )
     
     print("\n[2] Evaluating Quantized Model (3-bit, No LoRA)...")
-    quantized_acc, quantized_preds, quantized_thoughts, quantized_answers = evaluate_model_for_chart_qa(
+    quantized_acc, quantized_preds, quantized_thoughts, quantized_answers = evaluate_model_for_pope(
         QUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
     )
     
     print("\n[3] Evaluating Quantized + SFT + GRPO Model (with LoRA)...")
-    grpo_acc, grpo_preds, grpo_thoughts, grpo_answers = evaluate_model_for_chart_qa(
+    grpo_acc, grpo_preds, grpo_thoughts, grpo_answers = evaluate_model_for_pope(
         QUANTIZED_PATH, df, lora_path=GRPO_PATH, num_samples=NUM_SAMPLES
     )
 
