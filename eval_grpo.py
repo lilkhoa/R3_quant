@@ -385,7 +385,7 @@ if __name__ == "__main__":
     
     print("\n[1] Evaluating Base Model (Unquantized)...")
     base_unquantized_acc, base_unquantized_preds, base_unquantized_thoughts, base_unquantized_answers = evaluate_model_for_pope(
-        BASE_UNQUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES, blind_image=False
+        BASE_UNQUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
     )
     
     # print("\n[2] Evaluating Quantized Model (3-bit, No LoRA)...")
