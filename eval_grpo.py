@@ -367,7 +367,7 @@ if __name__ == "__main__":
     
     # Load dataset from Hugging Face
     NUM_SAMPLES = 300
-    PREVIOUS_SAMPLES = 0
+    PREVIOUS_SAMPLES = 300
     LOCAL_DATA_PATH = r"./data/pope/test-00000-of-00003.parquet"
 
     print("Loading dataset...")
