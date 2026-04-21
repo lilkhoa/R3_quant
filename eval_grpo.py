@@ -74,6 +74,10 @@ def evaluate_model(model_path, df, lora_path=None, num_samples=None, blind_image
         - thoughts: List of extracted reasoning from <think> tags
         - answers: List of extracted answers
     """
+    model_path = os.path.abspath(model_path)
+    if lora_path:
+        lora_path = os.path.abspath(lora_path)
+
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
         device_map="auto",
@@ -215,6 +219,10 @@ def evaluate_model_for_pope(model_path, df, lora_path=None, num_samples=None):
         - thoughts:    List of extracted <think> reasoning strings
         - answers:     List of extracted 'yes'/'no' predicted answers
     """
+    model_path = os.path.abspath(model_path)
+    if lora_path:
+        lora_path = os.path.abspath(lora_path)
+
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
         device_map="auto",
