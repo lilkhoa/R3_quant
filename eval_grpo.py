@@ -544,7 +544,7 @@ if __name__ == "__main__":
     # Load dataset from Hugging Face
     NUM_SAMPLES = 300
     PREVIOUS_SAMPLES = 0
-    LOCAL_DATA_PATH = r"./data/pope/test-00000-of-00003.parquet"
+    LOCAL_DATA_PATH = r"./data/chart_qa/test-00000-of-00001.parquet"
 
     print("Loading dataset...")
     df = load_dataset("parquet", data_files=LOCAL_DATA_PATH, split="train")

@@ -5,7 +5,7 @@ from datasets import load_dataset
 
 def setup_environment():
     print("--- 1. Khởi tạo cấu trúc thư mục ---")
-    directories = ["data/science_qa", "data/mini_cot", "data/pope", "weights"]
+    directories = ["data/science_qa", "data/mini_cot", "data/pope", "data/chart_qa", "weights"]
     for folder in directories:
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -77,5 +77,5 @@ if __name__ == "__main__":
     setup_environment()
     # download_data()
     # download_sft_data()
-    download_model()
+    # download_model()
     # run_quantizer()
