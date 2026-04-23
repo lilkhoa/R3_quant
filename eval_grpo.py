@@ -565,12 +565,12 @@ if __name__ == "__main__":
     # )
     
     print("\n[2] Evaluating Quantized Model (3-bit, No LoRA)...")
-    quantized_acc, quantized_preds, quantized_thoughts, quantized_answers = evaluate_model_for_pope(
+    quantized_acc, quantized_preds, quantized_thoughts, quantized_answers = evaluate_model_for_chartQA(
         QUANTIZED_PATH, df, lora_path=None, num_samples=NUM_SAMPLES
     )
     
     print("\n[3] Evaluating Quantized + SFT + GRPO Model (with LoRA)...")
-    grpo_acc, grpo_preds, grpo_thoughts, grpo_answers = evaluate_model_for_pope(
+    grpo_acc, grpo_preds, grpo_thoughts, grpo_answers = evaluate_model_for_chartQA(
         QUANTIZED_PATH, df, lora_path=GRPO_PATH, num_samples=NUM_SAMPLES
     )
 
