@@ -612,7 +612,7 @@ if __name__ == "__main__":
         print(f"QUANTIZED MODEL RESPONSE (No LoRA):")
         print(f"{'-'*70}")
         print(f"Predicted Answer: {quantized_answers[i] if quantized_answers[i] else '[Could not extract]'}")
-        print(f"Correctness: {'✓ CORRECT' if quantized_answers[i] == target else '✗ INCORRECT'}")
+        print(f"Correctness: {'✓ CORRECT' if chartqa_relaxed_correct(quantized_answers[i], target) else '✗ INCORRECT'}")
         print(f"\n[FULL RESPONSE TEXT]:")
         print(quantized_preds[i])
         
@@ -620,7 +620,7 @@ if __name__ == "__main__":
         print(f"QUANTIZED + SFT + GRPO MODEL RESPONSE:")
         print(f"{'-'*70}")
         print(f"Predicted Answer: {grpo_answers[i] if grpo_answers[i] else '[Could not extract]'}")
-        print(f"Correctness: {'✓ CORRECT' if grpo_answers[i] == target else '✗ INCORRECT'}")
+        print(f"Correctness: {'✓ CORRECT' if chartqa_relaxed_correct(grpo_answers[i], target) else '✗ INCORRECT'}")
         print(f"\n[FULL RESPONSE TEXT]:")
         print(grpo_preds[i])
     
