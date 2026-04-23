@@ -553,3 +553,64 @@ def compute_pope_metrics(pred_answers: list, ground_truths: list) -> dict:
         'f1':        f1,
         'yes_ratio': yes_ratio,
     }
+
+
+# ============================================================================
+# ChartQA Evaluation Helpers  (lmms-lab/ChartQA)
+# ============================================================================
+
+def build_chartqa_prompt(question: str) -> str:
+    """
+    Build a ChartQA-specific prompt for open-ended chart question answering.
+    The model is asked to analyze the chart image carefully and return a
+    concise answer (a number or short text) inside <answer> tags.
+    """
+    return (
+        f"Question: {question}\n\n"
+        "Carefully analyze the chart and answer concisely.\n"
+        "Start your response directly with the <think> tag.\n"
+    )
+
+
+def extract_chartqa_answer(text: str) -> str:
+    """
+    Extract the free-form answer from ChartQA model output.
+
+    Priority order:
+    1. Content inside <answer>...</answer> tags.
+    2. Last non-empty line of the output (common fallback when tags are absent).
+    """
+    match = re.search(r'<answer>(.*?)</answer>', text, re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    if lines:
+        return lines[-1]
+    return ""
+
+
+def chartqa_relaxed_correct(predicted: str, ground_truth: str, tolerance: float = 0.05) -> bool:
+    """
+    ChartQA relaxed accuracy metric (Masry et al., ACL Findings 2022).
+
+    - Numeric answers: correct when the relative error is within `tolerance` (default 5%).
+      |pred - gt| / max(|gt|, 1e-8) <= tolerance
+    - Text answers: case-insensitive exact match after stripping punctuation / whitespace.
+    """
+    pred = predicted.strip().rstrip("%").strip()
+    gt   = ground_truth.strip().rstrip("%").strip()
+
+    # Numeric comparison first
+    try:
+        pred_num = float(pred.replace(",", ""))
+        gt_num   = float(gt.replace(",", ""))
+        return abs(pred_num - gt_num) / max(abs(gt_num), 1e-8) <= tolerance
+    except ValueError:
+        pass
+
+    # Text comparison: normalize
+    def _norm(s: str) -> str:
+        return re.sub(r'[^\w\s]', '', s).lower().strip()
+
+    return _norm(pred) == _norm(gt)
