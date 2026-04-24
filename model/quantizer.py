@@ -1,5 +1,14 @@
 import sys
 import os
+
+# ── MUST be set before any gptq/optimum import ──────────────────────────────
+# Disables the native exllama/exllamav2 C++ kernels that cause SIGILL crashes
+# on Lightning AI / Kaggle CPUs whose instruction sets (AVX-512) are missing.
+os.environ["DISABLE_EXLLAMA"]        = "1"
+os.environ["GPTQ_DISABLE_EXLLAMAV2"] = "1"
+os.environ["USE_EXLLAMA"]            = "0"
+# ────────────────────────────────────────────────────────────────────────────
+
 import torch
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration, GPTQConfig, AutoConfig
 
@@ -23,10 +32,11 @@ class QwenGPTQQuantizer:
         gptq_config = GPTQConfig(
             bits=bits,
             dataset=calib_dataset,
-            tokenizer=self.base_model_path, 
-            use_exllama=False,            
+            tokenizer=self.base_model_path,
+            use_exllama=False,       # keep False – native kernel disabled via env var
             desc_act=False,
-            sym=True
+            sym=True,
+            model_seqlen=2048,       # suppress "couldn't get sequence length" warning
         )
 
         config = AutoConfig.from_pretrained(self.base_model_path)
@@ -42,8 +52,8 @@ class QwenGPTQQuantizer:
                 self.base_model_path,
                 config=config,
                 quantization_config=gptq_config,
-                device_map="auto",
-                torch_dtype=torch.bfloat16,
+                device_map="cuda:0",      # force GPU-only – prevents CPU offload + SIGILL
+                torch_dtype=torch.float16, # float16 is safe for GPTQ on all CUDA GPUs
                 low_cpu_mem_usage=True
             )
 
@@ -54,7 +64,9 @@ class QwenGPTQQuantizer:
             processor.save_pretrained(self.save_path)
             
         except Exception as e:
+            import traceback
             print(f"--- error: {e} ---")
+            traceback.print_exc()
             sys.exit(1) 
 
 if __name__ == "__main__":
