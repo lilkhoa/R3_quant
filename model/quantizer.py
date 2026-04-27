@@ -33,7 +33,15 @@ class QwenGPTQQuantizer:
 
     def quantize_and_save(self, bits=3):
         # Use DocumentVQA as calibration data (document-understanding domain)
-        calib_dataset = self.get_calibration_data_docvqa(self.data_path, test_size=8)
+        calib_dataset = self.get_calibration_data_docvqa(self.data_path, test_size=64)
+
+        if not calib_dataset:
+            raise ValueError(
+                "[Quantizer] Calibration dataset is empty. "
+                f"Check that '{self.data_path}' exists and contains valid rows. "
+                "Run main.py first to download the data."
+            )
+        print(f"[Quantizer] Using {len(calib_dataset)} calibration samples.")
         
         gptq_config = GPTQConfig(
             bits=bits,
@@ -42,7 +50,7 @@ class QwenGPTQQuantizer:
             use_exllama=False,       # keep False – native kernel disabled via env var
             desc_act=False,
             sym=True,
-            model_seqlen=2048,       # suppress "couldn't get sequence length" warning
+            model_seqlen=512,        # match actual calibration data length (20–80 tokens per sample)
         )
 
         config = AutoConfig.from_pretrained(self.base_model_path)
@@ -58,10 +66,15 @@ class QwenGPTQQuantizer:
                 self.base_model_path,
                 config=config,
                 quantization_config=gptq_config,
-                device_map="cuda:0",       # force GPU-only – prevents CPU offload + SIGILL
+                device_map="cuda:0",        # force GPU-only – prevents CPU offload + SIGILL
                 torch_dtype=torch.float16,  # float16 is safe for GPTQ on all CUDA GPUs
                 low_cpu_mem_usage=True,
-                attn_implementation="eager", # disable flash_attn – primary source of SIGILL
+                # sdpa = PyTorch native F.scaled_dot_product_attention:
+                #   • No separate C extension → no SIGILL risk
+                #   • Handles attention mask broadcasting flexibly → fixes the
+                #     (40 vs 20) tensor size mismatch in Qwen2-VL mrope during
+                #     GPTQ calibration that eager_attention_forward cannot handle
+                attn_implementation="sdpa",
             )
 
             os.makedirs(self.save_path, exist_ok=True)

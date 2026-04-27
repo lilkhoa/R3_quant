@@ -56,20 +56,36 @@ class DocumentVQALocalLoader:
             answer    - str  (first accepted answer)
             image     - raw image value from the parquet file
         """
+        import numpy as np
+
         df = self.df.copy()
 
         # Keep rows where question is non-empty
         mask = df["question"].notnull() & (df["question"].str.strip().str.len() > 0)
 
-        # Keep rows where answers list is non-empty
-        mask &= df["answers"].apply(
-            lambda a: isinstance(a, (list, tuple)) and len(a) > 0
-        )
+        # Keep rows where answers is a non-empty list/array
+        # Parquet stores list columns as numpy arrays, so check both.
+        def _has_answers(a):
+            if isinstance(a, (list, tuple)):
+                return len(a) > 0
+            if isinstance(a, np.ndarray):
+                return a.size > 0
+            return False
+
+        mask &= df["answers"].apply(_has_answers)
 
         df = df[mask].copy()
 
+        if df.empty:
+            raise ValueError(
+                f"[DocumentVQALocalLoader] No valid rows found in '{self.file_path}'. "
+                "Check that the file exists and has non-empty 'question' and 'answers' columns."
+            )
+
         # Normalise: use the first accepted answer as the canonical answer
-        df["answer"] = df["answers"].apply(lambda a: str(a[0]) if a else "")
+        df["answer"] = df["answers"].apply(
+            lambda a: str(a[0]) if (isinstance(a, (list, tuple, np.ndarray)) and len(a) > 0) else ""
+        )
 
         return df[["question", "answer", "image"]].head(self.subset_size).reset_index(drop=True)
 

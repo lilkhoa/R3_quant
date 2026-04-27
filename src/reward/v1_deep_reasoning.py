@@ -42,6 +42,25 @@ def _check_tag_ordering(content: str) -> tuple[bool, bool]:
     
     return has_valid_think, has_valid_answer
 
+def _count_tags(content: str, tag: str) -> int:
+    """Count how many times an exact tag appears in content."""
+    return content.count(tag)
+
+
+def _is_repetitive(text: str, threshold: float = 0.4) -> bool:
+    """
+    Return True when the text is suspiciously repetitive.
+    Computes the ratio of unique words to total words.
+    A ratio below `threshold` means >60% of words are duplicates
+    — a strong signal of padding / tag-farming.
+    e.g. "<answer> <answer> <answer>" → ratio ≈ 0.33 → repetitive
+    """
+    words = re.findall(r'\S+', text.lower())
+    if len(words) < 8:          # too short to judge
+        return False
+    return len(set(words)) / len(words) < threshold
+
+
 def format_reward_func(completions, **kwargs) -> list[float]:
     """
     Reward format correctness to break the 'answer-without-think' mode collapse.
@@ -56,13 +75,25 @@ def format_reward_func(completions, **kwargs) -> list[float]:
       - Has both but wrong order:                     +0.1
       - Has both in correct order (<think>→<answer>): +0.6  ← target behaviour
 
-    The -0.3 vs +0.6 gap (0.9 total) creates strong differential pressure.
-    Even a single completion that accidentally uses <think> will have a different
-    reward from the others, restoring reward_std > 0.
+    REWARD-HACKING GUARD: Repeated tags are penalised.
+      - More than one <answer> or <think> opening tag → -0.5 (tag-farming)
+      - Repetitive output (unique-word ratio < 40%%)   → -0.5 (padding)
     """
     rewards = []
     for comp in completions:
         content = comp[0]["content"] if isinstance(comp, list) else comp
+
+        # ── Reward-hacking guard ────────────────────────────────────────
+        # Penalise any attempt to farm rewards by repeating tags or filler
+        n_answer_open = _count_tags(content, "<answer>")
+        n_think_open  = _count_tags(content, "<think>")
+        if n_answer_open > 1 or n_think_open > 1:
+            rewards.append(-0.5)
+            continue
+        if _is_repetitive(content):
+            rewards.append(-0.5)
+            continue
+        # ────────────────────────────────────────────────────────────────
 
         has_think_open  = "<think>"  in content
         has_think_close = "</think>" in content
@@ -115,29 +146,56 @@ def _extract_answer_letter(text: str) -> str:
     
     return ""
 
+def _normalize_answer(text: str) -> str:
+    """
+    Normalize a free-form answer string for comparison.
+    Lowercases, removes articles and punctuation, and collapses whitespace.
+    Used for DocumentVQA-style open-ended answer matching.
+    """
+    text = text.lower().strip()
+    text = re.sub(r'\b(a|an|the)\b', ' ', text)
+    text = re.sub(r'[^\w\s]', '', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def accuracy_reward_func(completions, ground_truth, **kwargs) -> list[float]:
     """
-    Clean binary accuracy: 1.0 if the extracted answer letter matches ground truth, else 0.0.
+    Adaptive accuracy reward supporting both ScienceQA-style and DocumentVQA-style answers.
 
-    FIX (Fix C): The previous version had a consolation score (0.3-0.4) based on
-    the correct letter appearing in think content. But since the model currently
-    never produces <think> content, think_text is always "", making the consolation
-    branch dead code. Remove it to keep the reward clean and interpretable.
-    The format and reasoning rewards already provide the 'partial credit' signal;
-    accuracy should remain a clean binary signal.
+    Detection logic:
+      - Ground truth is a single letter (A-E / (A) / etc.) → multiple-choice letter match.
+      - Otherwise → normalised open-ended text match (DocumentVQA).
+
+    Text-match scoring:
+      - Exact normalised match:              1.0
+      - One string contained in the other:   0.5  (near-miss / partial credit)
+      - No overlap:                          0.0
+
+    Multiple-choice scoring remains binary (1.0 / 0.0) for a clean signal.
     """
     rewards = []
     for comp, truth in zip(completions, ground_truth):
         content = comp[0]["content"] if isinstance(comp, list) else comp
         answer_text = extract_xml_answer(content)
 
-        pred_letter = _extract_answer_letter(answer_text)
-
+        # Detect answer type: single letter → ScienceQA mode; otherwise → DocumentVQA mode
         truth_letter = _extract_answer_letter(truth)
-        if not truth_letter:
-            truth_letter = truth.upper().strip()
-
-        rewards.append(1.0 if pred_letter == truth_letter else 0.0)
+        if truth_letter:
+            # ── Multiple-choice mode (ScienceQA-style) ──────────────────
+            pred_letter = _extract_answer_letter(answer_text)
+            rewards.append(1.0 if pred_letter == truth_letter else 0.0)
+        else:
+            # ── Open-ended text mode (DocumentVQA-style) ─────────────────
+            pred_norm  = _normalize_answer(answer_text)
+            truth_norm = _normalize_answer(truth)
+            if not pred_norm or not truth_norm:
+                rewards.append(0.0)
+            elif pred_norm == truth_norm:
+                rewards.append(1.0)
+            elif truth_norm in pred_norm or pred_norm in truth_norm:
+                rewards.append(0.5)   # partial containment (near-miss)
+            else:
+                rewards.append(0.0)
 
     return rewards
 
@@ -155,14 +213,22 @@ def reasoning_length_reward_func(completions, **kwargs) -> list[float]:
     - 50–200 chars of reasoning:               +0.2  (getting there)
     - 200+ chars of solid reasoning:           +0.3  (bonus for deep reasoning)
 
-    This ensures different completions in a batch can have different values,
-    giving GRPO the variance it needs to compute a non-zero loss.
+    REWARD-HACKING GUARD: Repetitive padding inside <think> is penalised.
+    The model may try to farm +0.3 by repeating filler like
+    "think think think..." to hit the 200-char threshold.
+    We check unique-word ratio inside the think block; if < 40% words are
+    unique, the content is treated as padding and scores 0.0 regardless of length.
     """
     rewards = []
     for comp in completions:
         content = comp[0]["content"] if isinstance(comp, list) else comp
         think_content = extract_think_content(content)
         reasoning_length = len(think_content.replace(" ", "").replace("\n", "").replace("\t", ""))
+
+        # Guard: repetitive padding should not earn length bonus
+        if think_content and _is_repetitive(think_content):
+            rewards.append(0.0)
+            continue
 
         if reasoning_length >= 200:
             rewards.append(0.3)   # Deep reasoning

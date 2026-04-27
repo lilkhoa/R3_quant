@@ -614,3 +614,124 @@ def chartqa_relaxed_correct(predicted: str, ground_truth: str, tolerance: float 
         return re.sub(r'[^\w\s]', '', s).lower().strip()
 
     return _norm(pred) == _norm(gt)
+
+
+# ============================================================================
+# DocumentVQA GRPO Dataset
+# ============================================================================
+
+DOCVQA_SYSTEM_MESSAGE = (
+    "You are a document understanding AI. "
+    "You MUST carefully read the document image and think step-by-step. "
+    "Enclose your entire reasoning within <think> and </think> tags. "
+    "After thinking, output your final answer enclosed within <answer> and </answer> tags. "
+    "The answer should be concise — a word, number, or short phrase extracted from the document."
+)
+
+
+def build_docvqa_prompt(question: str) -> str:
+    """Build a user-turn prompt for HuggingFaceM4/DocumentVQA (open-ended, no choices)."""
+    return (
+        f"Question: {question}\n\n"
+        "Look carefully at the document image and answer the question. "
+        "Start your response directly with the <think> tag.\n"
+    )
+
+
+class DocumentVQAGRPODataset(torch.utils.data.Dataset):
+    """
+    Dataset for GRPO training on HuggingFaceM4/DocumentVQA.
+
+    HuggingFace schema:
+        questionId            - int32
+        question              - string   ← used as the prompt
+        question_types        - list[string]
+        image                 - Image    ← document page image
+        docId                 - int32
+        ucsf_document_id      - string
+        ucsf_document_page_no - string
+        answers               - list[string]  ← ground truth (first element used)
+    """
+
+    def __init__(self, raw_dataset, max_samples=None):
+        import numpy as np
+
+        self.items = []
+        count = 0
+
+        for item in raw_dataset:
+            if max_samples and count >= max_samples:
+                break
+            if item.get("image") is None:
+                continue
+
+            # answers is stored as list or numpy array in parquet; normalise to list
+            answers = item.get("answers", [])
+            if isinstance(answers, np.ndarray):
+                answers = answers.tolist()
+            if not answers:
+                continue
+
+            self.items.append({
+                "image":    item["image"],
+                "question": str(item["question"]),
+                "answer":   str(answers[0]),   # first accepted answer as canonical
+            })
+            count += 1
+
+    def __len__(self):
+        return len(self.items)
+
+    def __getitem__(self, idx):
+        item = self.items[idx]
+
+        try:
+            pil_image = _convert_image_to_pil(item["image"])
+            if pil_image.mode != "RGB":
+                pil_image = pil_image.convert("RGB")
+            pil_image.thumbnail((768, 768))
+
+            text_prompt = build_docvqa_prompt(item["question"])
+
+            messages = [
+                {"role": "system", "content": DOCVQA_SYSTEM_MESSAGE},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": text_prompt},
+                    ],
+                },
+            ]
+
+            return {
+                "prompt":       messages,
+                "images":       [pil_image],
+                "ground_truth": item["answer"],
+            }
+
+        except Exception as e:
+            print(f"[DocumentVQAGRPODataset] Error on item {idx}: {e}")
+            dummy = Image.new("RGB", (224, 224), color="white")
+            return {
+                "prompt": [
+                    {"role": "system", "content": DOCVQA_SYSTEM_MESSAGE},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image"},
+                            {"type": "text", "text": "What does the document say?"},
+                        ],
+                    },
+                ],
+                "images":       [dummy],
+                "ground_truth": "unknown",
+            }
+
+
+def prepare_docvqa_for_grpo(raw_dataset, processor, max_samples=None):
+    """Prepare HuggingFaceM4/DocumentVQA for GRPO training."""
+    dataset = DocumentVQAGRPODataset(raw_dataset, max_samples=max_samples)
+    if len(dataset) == 0:
+        print("Warning: DocumentVQA GRPO dataset is empty after processing. Check data path.")
+    return dataset

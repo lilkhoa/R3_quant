@@ -22,51 +22,59 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="torch.jit
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from model.lora_setup import apply_lora_to_quantized_model
-from src.reward.v2_vision_focus import (
+from src.reward.v1_deep_reasoning import (
     format_reward_func,
     accuracy_reward_func,
-    vision_reward_func,
+    reasoning_length_reward_func,
+    logic_structure_reward_func,
     logging_reward_func,
 )
-from src.utils import prepare_scienceqa_for_grpo, build_scienceqa_prompt, _convert_image_to_pil
+from src.utils import prepare_docvqa_for_grpo, build_docvqa_prompt, _convert_image_to_pil
 
 class GRPOOutputLoggingCallback(TrainerCallback):
     """
-    Generates model completions on a fixed set of held-out ScienceQA samples
+    Generates model completions on a fixed set of held-out DocumentVQA samples
     every `log_every` optimizer steps.
 
     Prints (without any truncation):
-      • The full question + choices prompt
+      • The full document question
       • The full model output (as decoded text)
-      • The full ground truth answer letter + correct choice text
+      • The ground truth answer string
+      • Format check (✓/✗) and normalised accuracy check
 
     This lets you see at a glance whether the model is:
       1. Learning the <think>/<answer> format
-      2. Improving answer accuracy over GRPO steps
+      2. Extracting correct information from document images
     """
 
     def __init__(self, sample_items: list, processor, log_every: int = 25):
         """
         Args:
-            sample_items: List of raw ScienceQA item dicts, each with keys:
-                          image, question, choices, answer  (int index)
+            sample_items: List of raw DocumentVQA item dicts, each with keys:
+                          image, question, answer (str)
             processor:    AutoProcessor for the VLM (text + image tokenization)
-            log_every:    Log once every N *optimizer* steps (i.e. after each
-                          gradient_accumulation_steps micro-steps == 1 step)
+            log_every:    Log once every N *optimizer* steps
         """
         self.sample_items = sample_items
         self.processor = processor
         self.log_every = log_every
-        self._labels = ["A", "B", "C", "D", "E"]
 
-        # System message must match exactly what ScienceQAGRPODataset uses
+        # System message must match exactly what DocumentVQAGRPODataset uses
         self._system_msg = (
-            "You are a logical reasoning AI. "
-            "You MUST think step-by-step and enclose your entire reasoning "
-            "within <think> and </think> tags. "
-            "After thinking, output your final answer (one letter only) "
-            "enclosed within <answer> and </answer> tags."
+            "You are a document understanding AI. "
+            "You MUST carefully read the document image and think step-by-step. "
+            "Enclose your entire reasoning within <think> and </think> tags. "
+            "After thinking, output your final answer enclosed within <answer> and </answer> tags. "
+            "The answer should be concise — a word, number, or short phrase extracted from the document."
         )
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """Lowercase, remove articles/punctuation, collapse whitespace."""
+        text = text.lower().strip()
+        text = re.sub(r'\b(a|an|the)\b', ' ', text)
+        text = re.sub(r'[^\w\s]', '', text)
+        return re.sub(r'\s+', ' ', text).strip()
 
     def on_step_end(
         self,
@@ -101,8 +109,7 @@ class GRPOOutputLoggingCallback(TrainerCallback):
 
                     # ── Build prompt (same format as training dataset) ─────
                     question = str(raw_item.get("question", ""))
-                    choices = raw_item.get("choices", [])
-                    text_prompt = build_scienceqa_prompt(question, choices)
+                    text_prompt = build_docvqa_prompt(question)
 
                     messages = [
                         {"role": "system", "content": self._system_msg},
@@ -125,7 +132,7 @@ class GRPOOutputLoggingCallback(TrainerCallback):
                         return_tensors="pt",
                         padding=True,
                     )
-                    # ── Cast and Move ───────────────────────────────────────────
+                    # ── Cast and Move ──────────────────────────────────────
                     for k, v in inputs.items():
                         if torch.is_floating_point(v):
                             inputs[k] = v.to(dtype=model.dtype, device=model.device)
@@ -134,8 +141,8 @@ class GRPOOutputLoggingCallback(TrainerCallback):
 
                     output_ids = model.generate(
                         **inputs,
-                        max_new_tokens=512,   
-                        do_sample=False,       
+                        max_new_tokens=512,
+                        do_sample=False,
                         temperature=1.0,
                         pad_token_id=self.processor.tokenizer.eos_token_id,
                     )
@@ -146,27 +153,30 @@ class GRPOOutputLoggingCallback(TrainerCallback):
                         skip_special_tokens=True,
                     )
 
-                    answer_idx = int(raw_item.get("answer", 0))
-                    correct_letter = self._labels[answer_idx]
-                    correct_choice = (
-                        choices[answer_idx]
-                        if choices and answer_idx < len(choices)
-                        else "N/A"
-                    )
-                    ground_truth_str = (
-                        f"<answer>{correct_letter}</answer>  "
-                        f"(choice {answer_idx}: {correct_choice})"
-                    )
+                    # ── Ground truth ───────────────────────────────────────
+                    ground_truth_str = raw_item.get("answer", "")
 
+                    # ── Format check ───────────────────────────────────────
                     has_think  = "<think>"  in model_output and "</think>"  in model_output
                     has_answer = "<answer>" in model_output and "</answer>" in model_output
                     fmt_ok = "✅" if (has_think and has_answer) else "❌"
 
+                    # ── Extract predicted answer and check accuracy ────────
                     ans_match = re.search(
-                        r"<answer>\s*([A-Ea-e])\s*</answer>", model_output
+                        r"<answer>(.*?)</answer>", model_output, re.DOTALL
                     )
-                    pred_letter = ans_match.group(1).upper() if ans_match else "?"
-                    acc_ok = "✅ CORRECT" if pred_letter == correct_letter else "❌ WRONG"
+                    pred_answer = ans_match.group(1).strip() if ans_match else ""
+                    pred_norm  = self._normalize(pred_answer)
+                    truth_norm = self._normalize(ground_truth_str)
+
+                    if pred_norm and truth_norm and pred_norm == truth_norm:
+                        acc_ok = "✅ CORRECT"
+                    elif pred_norm and truth_norm and (
+                        truth_norm in pred_norm or pred_norm in truth_norm
+                    ):
+                        acc_ok = "⚠️ PARTIAL"
+                    else:
+                        acc_ok = "❌ WRONG"
 
                     # ── Print everything with NO truncation ────────────────
                     print(f"\n{'─' * 72}")
@@ -175,13 +185,14 @@ class GRPOOutputLoggingCallback(TrainerCallback):
                     print(f"📥 [QUESTION]\n{text_prompt}")
                     print(f"\n🤖 [FULL MODEL OUTPUT]\n{model_output}")
                     print(f"\n🎯 [GROUND TRUTH]  {ground_truth_str}")
-                    print(f"\n{fmt_ok} Format  |  {acc_ok}  (predicted: {pred_letter})")
+                    print(f"\n{fmt_ok} Format  |  {acc_ok}  (predicted: '{pred_answer}')")
 
                 except Exception as e:
                     print(f"[GRPO Callback] Error on sample {i}: {e}")
 
         print("\n" + "=" * 72 + "\n")
         model.train()
+
 
 
 def train_r3_quant_grpo(
@@ -195,7 +206,7 @@ def train_r3_quant_grpo(
 
     Args:
         model_dir:           Path to base quantized model
-        train_data:          Raw ScienceQA dataset (HuggingFace Dataset)
+        train_data:          Raw DocumentVQA dataset (HuggingFace Dataset / parquet)
         output_dir:          Where to save the final GRPO LoRA checkpoint
         sft_checkpoint_dir:  Optional path to SFT LoRA checkpoint.
                              If given, loads format-aligned weights before GRPO.
@@ -230,7 +241,7 @@ def train_r3_quant_grpo(
         print("\n[GRPO] No SFT checkpoint provided — using fresh LoRA initialization.")
         peft_model = apply_lora_to_quantized_model(model_dir)
 
-    grpo_dataset = prepare_scienceqa_for_grpo(train_data, processor)
+    grpo_dataset = prepare_docvqa_for_grpo(train_data, processor)
     print(f"[GRPO] Dataset ready: {len(grpo_dataset)} samples with images.\n")
 
     sample_items = [grpo_dataset.items[i] for i in range(min(2, len(grpo_dataset)))]
@@ -277,10 +288,11 @@ def train_r3_quant_grpo(
     )
 
     reward_funcs = [
-        format_reward_func,             
-        accuracy_reward_func,           
-        vision_reward_func,             
-        logging_reward_func,            
+        format_reward_func,             # Format structure: <think> then <answer>
+        accuracy_reward_func,           # Text-normalized answer match (DocumentVQA)
+        reasoning_length_reward_func,   # Encourage substantive <think> content
+        logic_structure_reward_func,    # Reward logical keywords in reasoning
+        logging_reward_func,            # Logging only, always returns 0.0
     ]
 
     logging_callback = GRPOOutputLoggingCallback(
@@ -307,7 +319,7 @@ def train_r3_quant_grpo(
 
 
 if __name__ == "__main__":
-    LOCAL_DATA_PATH = r"./data/science_qa/validation-00000-of-00001-6c7328ff6c84284c.parquet"
+    LOCAL_DATA_PATH = r"./data/document_vqa/train-00000-of-00038.parquet"
     raw_scienceqa = load_dataset("parquet", data_files=LOCAL_DATA_PATH, split="train")
 
     MODEL_DIR        = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"

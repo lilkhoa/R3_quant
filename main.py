@@ -22,7 +22,24 @@ def download_data():
     else:
         print("Dataset đã tồn tại, bỏ qua bước tải.")
 
-def download_sft_data():
+def download_docvqa_data():
+    print("\n--- 2. Đang tải Dataset DocumentVQA từ Hugging Face ---")
+    target_path = "./data/document_vqa/train-00000-of-00038.parquet"
+    if not os.path.exists(target_path):
+        print("Downloading HuggingFaceM4/DocumentVQA (train split, first shard)...")
+        # Load only first 200 rows — enough for GPTQ calibration, avoids downloading 9 GB
+        dataset = load_dataset(
+            "HuggingFaceM4/DocumentVQA",
+            split="train",
+            streaming=False,
+        ).select(range(200))
+        os.makedirs("./data/document_vqa", exist_ok=True)
+        dataset.to_parquet(target_path)
+        print(f"Đã lưu dataset tại: {target_path}")
+    else:
+        print("DocumentVQA dataset đã tồn tại, bỏ qua bước tải.")
+
+
     print("\n--- 2.5 Đang tải Dataset mini_cot_8k_verified cho SFT Training ---")
     try:
         dataset = load_dataset("luodian/mini_cot_8k_verified")
@@ -85,7 +102,7 @@ def run_quantizer():
 
 if __name__ == "__main__":
     setup_environment()
-    # download_data()
-    download_sft_data()
+    download_docvqa_data()
+    # download_sft_data()
     download_model()
     run_quantizer()

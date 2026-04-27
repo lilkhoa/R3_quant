@@ -127,15 +127,25 @@ class SFTOutputLoggingCallback(TrainerCallback):
 
                     problem_text = str(raw_item.get("problem", "Question"))
 
-                    # --- Build messages (user turn only — model generates assistant) ---
+                    SYSTEM_MESSAGE = (
+                        "You are a logical reasoning AI. "
+                        "You MUST think step-by-step and enclose your entire reasoning "
+                        "within <think> and </think> tags. "
+                        "After thinking, output your final answer (one letter only) "
+                        "enclosed within <answer> and </answer> tags."
+                    )
                     messages = [
+                        {
+                            "role": "system",
+                            "content": SYSTEM_MESSAGE,
+                        },
                         {
                             "role": "user",
                             "content": [
                                 {"type": "image"},
                                 {"type": "text", "text": problem_text},
                             ],
-                        }
+                        },
                     ]
 
                     # --- Tokenize ---
@@ -232,7 +242,6 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         gradient_accumulation_steps=8,
         gradient_checkpointing=True,
         max_grad_norm=1.0,
-        # L4 GPU (Ampere) supports bfloat16 natively — more stable than fp16 for SFT.
         bf16=True,
         fp16=False,
         dataset_kwargs={"skip_prepare_dataset": True},
