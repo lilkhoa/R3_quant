@@ -5,7 +5,7 @@ from datasets import load_dataset
 
 def setup_environment():
     print("--- 1. Khởi tạo cấu trúc thư mục ---")
-    directories = ["data/science_qa", "data/mini_cot", "data/pope", "data/chart_qa", "weights"]
+    directories = ["data/document_vqa", "data/mini_cot", "weights"]
     for folder in directories:
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -62,10 +62,20 @@ def download_model():
 def run_quantizer():
     print("\n--- 4. Bắt đầu chạy file quantizer.py ---")
     script_path = "model/quantizer.py"
-    
+
     if os.path.exists(script_path):
         try:
-            result = subprocess.run(["python", script_path], check=True)
+            # Pass GPTQ/exllama env vars at the subprocess level so they are
+            # in the process environment BEFORE Lightning AI's /commands/python
+            # wrapper loads any native C extensions.
+            env = os.environ.copy()
+            env["DISABLE_EXLLAMA"]        = "1"
+            env["GPTQ_DISABLE_EXLLAMAV2"] = "1"
+            env["USE_EXLLAMA"]            = "0"
+            # Prevent flash_attn from loading (SIGILL on some VMs)
+            env["FLASH_ATTENTION_SKIP_CUDA_BUILD"] = "TRUE"
+
+            result = subprocess.run(["python", script_path], env=env, check=True)
             if result.returncode == 0:
                 print("\n[SUCCESS] Quá trình lượng tử hóa hoàn tất thành công!")
         except subprocess.CalledProcessError as e:
@@ -75,7 +85,7 @@ def run_quantizer():
 
 if __name__ == "__main__":
     setup_environment()
-    download_data()
-    # download_sft_data()
+    # download_data()
+    download_sft_data()
     download_model()
     run_quantizer()

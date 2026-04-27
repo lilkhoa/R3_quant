@@ -25,10 +25,61 @@ class ScienceQALocalLoader:
             return 1.0
         return 0.0
 
-    # if __name__ == "__main__":
-    #     DATA_PATH = r"./data/science_qa/validation-00000-of-00001-6c7328ff6c84284c.parquet"
-    #     loader = ScienceQALocalLoader(DATA_PATH, subset_size=5)
-    #     test_subset = loader.preprocess_for_r3_quant()
-    #     for idx, row in test_subset.iterrows():
-    #         ans_letter = loader.choices_map[int(row['answer'])]
-    #         print(f"ID: {idx} | Target: {ans_letter} | CoT: {row['reasoning'][:50]}...")
+class DocumentVQALocalLoader:
+    """
+    Loader for the HuggingFaceM4/DocumentVQA dataset stored as a local parquet file.
+
+    Dataset schema (HuggingFaceM4/DocumentVQA):
+        questionId          - int32, unique question identifier
+        question            - string, the question text
+        question_types      - list[string], question category tags
+        image               - Image, document page image
+        docId               - int32, document identifier
+        ucsf_document_id    - string
+        ucsf_document_page_no - string
+        answers             - list[string], one or more accepted answer strings
+
+    Primary use-case: producing calibration strings for GPTQ quantization,
+    analogous to ScienceQALocalLoader.get_calibration_data().
+    """
+
+    def __init__(self, file_path: str, subset_size: int = 8):
+        self.file_path = file_path
+        self.subset_size = subset_size
+        self.df = pd.read_parquet(self.file_path)
+
+    def preprocess_for_calibration(self) -> pd.DataFrame:
+        """
+        Filter rows that have both a question and at least one answer,
+        then return up to subset_size rows with standardised columns:
+            question  - str
+            answer    - str  (first accepted answer)
+            image     - raw image value from the parquet file
+        """
+        df = self.df.copy()
+
+        # Keep rows where question is non-empty
+        mask = df["question"].notnull() & (df["question"].str.strip().str.len() > 0)
+
+        # Keep rows where answers list is non-empty
+        mask &= df["answers"].apply(
+            lambda a: isinstance(a, (list, tuple)) and len(a) > 0
+        )
+
+        df = df[mask].copy()
+
+        # Normalise: use the first accepted answer as the canonical answer
+        df["answer"] = df["answers"].apply(lambda a: str(a[0]) if a else "")
+
+        return df[["question", "answer", "image"]].head(self.subset_size).reset_index(drop=True)
+
+    def get_calibration_strings(self) -> list:
+        """
+        Return a list of plain-text strings suitable for GPTQ calibration.
+        Format mirrors ScienceQALocalLoader: "Question: ...\nAnswer: ..."
+        """
+        df = self.preprocess_for_calibration()
+        return [
+            f"Question: {row['question']}\nAnswer: {row['answer']}"
+            for _, row in df.iterrows()
+        ]

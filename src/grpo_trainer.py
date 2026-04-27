@@ -262,11 +262,13 @@ def train_r3_quant_grpo(
         temperature=1.0,          
         top_p=1.0,
 
-        # Memory / precision 
+        # Memory / precision
+        # L4 GPU (Ampere) supports bfloat16 natively — use bf16 for training stability.
+        # The GPTQ base weights are float16; LoRA adapters will be computed in bf16
+        # via AMP autocast, which is safe and more numerically stable than fp16.
         gradient_checkpointing=True,
-        
-        fp16=True,
-        bf16=False,
+        bf16=True,
+        fp16=False,
         # ----------------------------------------
 
         # Misc

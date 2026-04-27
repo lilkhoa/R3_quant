@@ -232,7 +232,9 @@ def train_sft_format_alignment(model_dir: str, train_data, output_dir: str, data
         gradient_accumulation_steps=8,
         gradient_checkpointing=True,
         max_grad_norm=1.0,
-        fp16=True,
+        # L4 GPU (Ampere) supports bfloat16 natively — more stable than fp16 for SFT.
+        bf16=True,
+        fp16=False,
         dataset_kwargs={"skip_prepare_dataset": True},
         remove_unused_columns=False,
         report_to="none",

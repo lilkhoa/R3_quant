@@ -18,7 +18,9 @@ def evaluate_model(model_path, df, lora_path=None):
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        # Use float16: the GPTQ-Int3 quantized model was saved with float16 activations.
+        # The unquantized base model also loads fine in float16 on L4.
+        torch_dtype=torch.float16,
     )
     
     if lora_path:

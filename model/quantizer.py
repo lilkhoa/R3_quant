@@ -13,7 +13,7 @@ import torch
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration, GPTQConfig, AutoConfig
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from data.dataset_loader import ScienceQALocalLoader
+from data.dataset_loader import ScienceQALocalLoader, DocumentVQALocalLoader
 
 class QwenGPTQQuantizer:
     def __init__(self, base_model_path, save_path, data_path):
@@ -26,8 +26,14 @@ class QwenGPTQQuantizer:
         df = loader.preprocess_for_r3_quant()
         return [f"Question: {row['question']}\nAnswer: {row['reasoning']}" for _, row in df.iterrows()]
 
+    def get_calibration_data_docvqa(self, data_path: str, test_size: int = 8):
+        """Alternative calibration source using DocumentVQA (document-understanding domain)."""
+        loader = DocumentVQALocalLoader(data_path, subset_size=test_size)
+        return loader.get_calibration_strings()
+
     def quantize_and_save(self, bits=3):
-        calib_dataset = self.get_calibration_data(test_size=8)
+        # Use DocumentVQA as calibration data (document-understanding domain)
+        calib_dataset = self.get_calibration_data_docvqa(self.data_path, test_size=8)
         
         gptq_config = GPTQConfig(
             bits=bits,
@@ -52,9 +58,10 @@ class QwenGPTQQuantizer:
                 self.base_model_path,
                 config=config,
                 quantization_config=gptq_config,
-                device_map="cuda:0",      # force GPU-only – prevents CPU offload + SIGILL
-                torch_dtype=torch.float16, # float16 is safe for GPTQ on all CUDA GPUs
-                low_cpu_mem_usage=True
+                device_map="cuda:0",       # force GPU-only – prevents CPU offload + SIGILL
+                torch_dtype=torch.float16,  # float16 is safe for GPTQ on all CUDA GPUs
+                low_cpu_mem_usage=True,
+                attn_implementation="eager", # disable flash_attn – primary source of SIGILL
             )
 
             os.makedirs(self.save_path, exist_ok=True)
@@ -72,7 +79,7 @@ class QwenGPTQQuantizer:
 if __name__ == "__main__":
     BASE_MODEL = r"./weights/Qwen2-VL-7B-Instruct"
     SAVE_DIR = r"./weights/Qwen2-VL-7B-Instruct-GPTQ-Int3"
-    DATA_PATH = r"./data/science_qa/validation-00000-of-00001-6c7328ff6c84284c.parquet"
+    DATA_PATH = r"./data/document_vqa/train-00000-of-00038.parquet"
     
     quantizer = QwenGPTQQuantizer(BASE_MODEL, SAVE_DIR, DATA_PATH)
     quantizer.quantize_and_save(bits=3)
