@@ -621,11 +621,11 @@ def chartqa_relaxed_correct(predicted: str, ground_truth: str, tolerance: float 
 # ============================================================================
 
 DOCVQA_SYSTEM_MESSAGE = (
-    "You are a document understanding AI. "
-    "You MUST carefully read the document image and think step-by-step. "
-    "Enclose your entire reasoning within <think> and </think> tags. "
-    "After thinking, output your final answer enclosed within <answer> and </answer> tags. "
-    "The answer should be concise — a word, number, or short phrase extracted from the document."
+    "You are a logical reasoning AI. "
+    "You MUST think step-by-step and enclose your entire reasoning "
+    "within <think> and </think> tags. "
+    "After thinking, output your final answer (a word, number, or short phrase extracted from the document) "
+    "enclosed within <answer> and </answer> tags."
 )
 
 
@@ -633,7 +633,7 @@ def build_docvqa_prompt(question: str) -> str:
     """Build a user-turn prompt for HuggingFaceM4/DocumentVQA (open-ended, no choices)."""
     return (
         f"Question: {question}\n\n"
-        "Look carefully at the document image and answer the question. "
+        "Look carefully at the document image and answer this question step by step, then provide your final answer. "
         "Start your response directly with the <think> tag.\n"
     )
 
